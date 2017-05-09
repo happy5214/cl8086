@@ -18,18 +18,24 @@
 ;;;; FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 ;;;; DEALINGS IN THE SOFTWARE.
 
-; State
+;;; Program settings
+
+(defparameter *disasm* nil "Whether to disassemble")
+
+;;; State variables
+
 (defparameter *ram* (make-array (* 64 1024) :initial-element 0 :element-type '(unsigned-byte 8)) "Primary segment")
 (defparameter *stack* (make-array (* 64 1024) :initial-element 0 :element-type '(unsigned-byte 8)) "Stack segment")
-(defparameter *flags* '(:cf nil :sf nil :zf nil) "Flags")
+(defparameter *flags* '(:cf 0 :sf 0 :zf 0) "Flags")
 (defparameter *registers* '(:ax 0 :bx 0 :cx 0 :dx 0 :bp 0 :sp #x100 :si 0 :di 0 :ip 0) "Registers")
 
-; Constants
+;;; Constants
+
 (defconstant +byte-register-to-word+ '(:al (:ax nil) :ah (:ax t) :bl (:bx nil) :bh (:bx t) :cl (:cx nil) :ch (:cx t) :dl (:dx nil) :dh (:dx t)) "Mapping from byte registers to word registers")
 (defconstant +bits-to-register+ '(:ax :cx :dx :bx :sp :bp :si :di) "Mapping from index to word register")
 (defconstant +bits-to-byte-register+ '(:al :cl :dl :bl :ah :ch :dh :bh) "Mapping from index to byte register")
 
-; Constant mappings
+;;; Constant mappings
 
 (defun bits->word-reg (bits)
   (elt +bits-to-register+ bits))
@@ -37,7 +43,7 @@
 (defun bits->byte-reg (bits)
   (elt +bits-to-byte-register+ bits))
 
-; setf-able locations
+;;; setf-able locations
 
 (defun register (reg)
   (getf *registers* reg))
@@ -61,21 +67,39 @@
 
 (defsetf byte-register set-byte-reg)
 
-(defun flag (flag-name)
-  (getf *flags* flag-name))
+(defun flag (name)
+  (getf *flags* name))
 
-(defun set-flag (flag-name is-set)
-  (setf (getf *flags* flag-name) is-set))
+(defun set-flag (name value)
+  (setf (getf *flags* name) value))
 
 (defsetf flag set-flag)
 
-; Convenience functions
+(defun flag-p (name)
+  (= (flag name) 1))
+
+(defun set-flag-p (name is-set)
+  (setf (flag name) (if is-set 1 0)))
+
+(defsetf flag-p set-flag-p)
+
+;;; Convenience functions
 
 (defun reverse-little-endian (low high)
   "Reverse a little-endian number."
   (+ low (ash high 8)))
 
-; RAM access
+;;; Instruction loader
+
+(defun next-instruction ()
+  (incf (register :ip))
+  (elt *ram* (1- (register :ip))))
+
+(defun load-instructions (instrs)
+  (setf (register :ip) 0)
+  (setf (subseq *ram* 0 #x7fff) instrs))
+
+;;; Memory access
 
 (defun read-word-from-ram (loc &optional (segment *ram*))
   "Read a word from a RAM segment."
@@ -93,61 +117,73 @@
   (incf (register :sp) 2)
   (read-word-from-ram (- (register :sp) 2) *stack*))
 
-; Instruction loader
+;;; Flag effects
 
-(defun next-instruction ()
-  (incf (register :ip))
-  (elt *ram* (1- (register :ip))))
+(defun set-cf-on-add (value is-word)
+  (setf (flag :cf) (if is-word (max (floor (/ value #x10000)) 1) (max (floor (/ value #x100)))))
+  value)
 
-(defun load-instructions (instrs)
-  (setf (register :ip) 0)
-  (setf (subseq *ram* 0 #x7fff) instrs))
+(defun set-cf-on-sub (value1 value2)
+  (setf (flag-p :cf) (> value2 value1))
+  value1)
 
-; Operations
+(defun set-sf-on-op (value is-word)
+  (setf (flag :sf) (if is-word (max (floor (/ value #x8000)) 1) (max (floor (/ value #x80)))))
+  value)
+
+(defun set-zf-on-op (value)
+  (setf (flag-p :zf) (= value 0))
+  value)
+
+;;; Operations
+
+(defmacro disasm-instr (on-disasm &body body)
+  `(if *disasm*
+       ,on-disasm
+       (progn ,@body)))
 
 (defun clear-carry-flag ()
-  (setf (flag :cf) nil))
+  (disasm-instr (list "clc")
+    (setf (flag-p :cf) nil)))
 
 (defun set-carry-flag ()
-  (setf (flag :cf) t))
+  (disasm-instr (list "stc")
+    (setf (flag-p :cf) t)))
 
 (defun mov-byte-to-register (opcode)
   (let ((reg (bits->byte-reg (mod opcode #x08))))
-    (setf (byte-register reg) (next-instruction))
-    (list "mov" :src (byte-register reg) :dest reg)))
+    (disasm-instr (list "mov" :src (next-instruction) :dest reg)
+      (setf (byte-register reg) (next-instruction)))))
 
 (defun mov-word-to-register (reg)
-  (setf (register reg) (reverse-little-endian (next-instruction) (next-instruction)))
-  (list "mov" :src (register reg) :dest reg))
+  (disasm-instr (list "mov" :src (reverse-little-endian (next-instruction) (next-instruction)) :dest reg)
+    (setf (register reg) (reverse-little-endian (next-instruction) (next-instruction)))))
 
 (defmacro with-one-byte-opcode-register (opcode &body body)
   `(let ((reg (bits->word-reg (mod ,opcode #x08))))
      ,@body))
 
 (defun push-register (reg)
-  (push-to-stack (register reg))
-  (list "push" :src reg))
+  (disasm-instr (list "push" :src reg)
+    (push-to-stack (register reg))))
 
 (defun pop-to-register (reg)
-  (setf (register reg) (pop-from-stack))
-  (list "pop" :dest reg))
+  (disasm-instr (list "pop" :dest reg)
+    (setf (register reg) (pop-from-stack))))
 
 (defun inc-register (reg)
-  (incf (register reg))
-  (list "inc" :op1 reg))
+  (disasm-instr (list "inc" :op1 reg)
+    (set-sf-on-op (set-zf-on-op (incf (register reg))) t)))
 
 (defun dec-register (reg)
-  (decf (register reg))
-  (list "dec" :op1 reg))
+  (disasm-instr (list "dec" :op1 reg)
+    (set-sf-on-op (set-zf-on-op (decf (register reg))) t)))
 
 (defun xchg-register (reg)
-  (if (eql reg :ax)
-      (list "nop")
-      (progn
-	(rotatef (register :ax) (register reg))
-	(list "xchg" :op1 :ax :op2 reg))))
+  (disasm-instr (if (eql reg :ax) '("nop") (list "xchg" :op1 :ax :op2 reg))
+    (rotatef (register :ax) (register reg))))
 
-; Opcode parsing
+;;; Opcode parsing
 
 (defun in-8-byte-block-p (opcode block)
   (= (truncate (/ opcode 8)) (/ block 8)))
@@ -168,6 +204,7 @@
 
 (defun loop-instructions (&optional (return-disasm nil))
   "Loop through loaded instructions."
+  (setf *disasm* return-disasm)
   (loop
      for ret = (parse-opcode (next-instruction))
      collecting ret into disasm
