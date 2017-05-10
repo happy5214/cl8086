@@ -115,9 +115,9 @@
   (setf (elt segment loc) (logand word #x00ff))
   (setf (elt segment (1+ loc)) (ash (logand word #xff00) -8)))
 
-(defun push-to-stack (b)
+(defun push-to-stack (value)
   (decf (register :sp) 2)
-  (write-word-to-ram (register :sp) b *stack*))
+  (write-word-to-ram (register :sp) value *stack*))
 
 (defun pop-from-stack ()
   (incf (register :sp) 2)
