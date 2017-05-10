@@ -49,7 +49,7 @@
   (getf *registers* reg))
 
 (defun set-reg (reg value)
-  (setf (getf *registers* reg) value))
+  (setf (getf *registers* reg) (wrap-overflow value t)))
 
 (defsetf register set-reg)
 
@@ -60,10 +60,10 @@
 	(logand (register word) #x00ff))))
 
 (defun set-byte-reg (reg value)
-  (let* ((register-to-word (getf +byte-register-to-word+ reg)) (word (first register-to-word)))
+  (let* ((register-to-word (getf +byte-register-to-word+ reg)) (word (first register-to-word)) (wrapped-value (wrap-overflow value nil)))
     (if (second register-to-word)
-	(setf (register word) (+ (ash value 8) (logand (register word) #x00ff)))
-	(setf (register word) (+ value (logand (register word) #xff00))))))
+	(setf (register word) (+ (ash wrapped-value 8) (logand (register word) #x00ff)))
+	(setf (register word) (+ wrapped-value (logand (register word) #xff00))))))
 
 (defsetf byte-register set-byte-reg)
 
@@ -89,15 +89,21 @@
   "Reverse a little-endian number."
   (+ low (ash high 8)))
 
+(defun wrap-overflow (value is-word)
+  (if is-word (mod value #x10000) (mod value #x100)))
+
 ;;; Instruction loader
+
+(defun load-instructions (instrs)
+  (setf (register :ip) 0)
+  (setf (subseq *ram* 0 #x7fff) instrs))
 
 (defun next-instruction ()
   (incf (register :ip))
   (elt *ram* (1- (register :ip))))
 
-(defun load-instructions (instrs)
-  (setf (register :ip) 0)
-  (setf (subseq *ram* 0 #x7fff) instrs))
+(defun next-word ()
+  (reverse-little-endian (next-instruction) (next-instruction)))
 
 ;;; Memory access
 
@@ -120,15 +126,15 @@
 ;;; Flag effects
 
 (defun set-cf-on-add (value is-word)
-  (setf (flag :cf) (if is-word (max (floor (/ value #x10000)) 1) (max (floor (/ value #x100)))))
-  value)
+  (setf (flag-p :cf) (if is-word (>= (/ value #x10000) 1) (>= (/ value #x100) 1)))
+  (wrap-overflow value is-word))
 
 (defun set-cf-on-sub (value1 value2)
   (setf (flag-p :cf) (> value2 value1))
   value1)
 
 (defun set-sf-on-op (value is-word)
-  (setf (flag :sf) (if is-word (max (floor (/ value #x8000)) 1) (max (floor (/ value #x80)))))
+  (setf (flag-p :sf) (if is-word (>= (/ value #x8000) 1) (>= (/ value #x80) 1)))
   value)
 
 (defun set-zf-on-op (value)
@@ -143,11 +149,11 @@
        (progn ,@body)))
 
 (defun clear-carry-flag ()
-  (disasm-instr (list "clc")
+  (disasm-instr '("clc")
     (setf (flag-p :cf) nil)))
 
 (defun set-carry-flag ()
-  (disasm-instr (list "stc")
+  (disasm-instr '("stc")
     (setf (flag-p :cf) t)))
 
 (defun mov-byte-to-register (opcode)
@@ -156,8 +162,8 @@
       (setf (byte-register reg) (next-instruction)))))
 
 (defun mov-word-to-register (reg)
-  (disasm-instr (list "mov" :src (reverse-little-endian (next-instruction) (next-instruction)) :dest reg)
-    (setf (register reg) (reverse-little-endian (next-instruction) (next-instruction)))))
+  (disasm-instr (list "mov" :src (next-word) :dest reg)
+    (setf (register reg) (next-word))))
 
 (defmacro with-one-byte-opcode-register (opcode &body body)
   `(let ((reg (bits->word-reg (mod ,opcode #x08))))
