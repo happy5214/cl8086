@@ -215,14 +215,16 @@
   (disasm-instr (list "mov" :src (next-word) :dest reg)
     (setf (register reg) (next-word))))
 
+;; Flow control
+
 (defun jmp-short ()
   (disasm-instr (list "jmp" :op1 (twos-complement (next-instruction) nil))
     (incf (register :ip) (twos-complement (next-instruction) nil))))
 
 (defun call-near ()
-  (disasm-instr (list "call" (twos-complement (reverse-little-endian (next-instruction) (next-instruction)) t))
+  (disasm-instr (list "call" :op1 (twos-complement (next-word) t))
     (push-to-stack (+ (register :ip) 2))
-    (incf (register :ip) (twos-complement (reverse-little-endian (next-instruction) (next-instruction)) t))))
+    (incf (register :ip) (twos-complement (next-word) t))))
 
 (defun ret-from-call ()
   (disasm-instr '("ret")
