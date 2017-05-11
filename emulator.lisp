@@ -151,6 +151,10 @@
        ,on-disasm
        (progn ,@body)))
 
+(defmacro with-one-byte-opcode-register (opcode &body body)
+  `(let ((reg (bits->word-reg (mod ,opcode #x08))))
+     ,@body))
+
 (defun clear-carry-flag ()
   (disasm-instr '("clc")
     (setf (flag-p :cf) nil)))
@@ -167,10 +171,6 @@
 (defun mov-word-to-register (reg)
   (disasm-instr (list "mov" :src (next-word) :dest reg)
     (setf (register reg) (next-word))))
-
-(defmacro with-one-byte-opcode-register (opcode &body body)
-  `(let ((reg (bits->word-reg (mod ,opcode #x08))))
-     ,@body))
 
 (defun push-register (reg)
   (disasm-instr (list "push" :src reg)
