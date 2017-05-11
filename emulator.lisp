@@ -93,6 +93,14 @@
   "Wrap around an overflowed value."
   (if is-word (mod value #x10000) (mod value #x100)))
 
+(defun negative-p (value is-word)
+  (if is-word (>= value #x8000) (>= value #x80)))
+
+(defun twos-complement (value is-word)
+  (if (negative-p value is-word)
+      (- (1+ (logxor value (if is-word #xffff #xff))))
+      value))
+
 ;;; Instruction loader
 
 (defun load-instructions-into-ram (instrs)
@@ -137,7 +145,7 @@
   value1)
 
 (defun set-sf-on-op (value is-word)
-  (setf (flag-p :sf) (if is-word (>= value #x8000) (>= value #x80)))
+  (setf (flag-p :sf) (negative-p value is-word))
   value)
 
 (defun set-zf-on-op (value)
@@ -192,6 +200,19 @@
   (disasm-instr (list "mov" :src (next-word) :dest reg)
     (setf (register reg) (next-word))))
 
+(defun jmp-short ()
+  (disasm-instr (list "jmp" :op1 (twos-complement (next-instruction) nil))
+    (incf (register :ip) (twos-complement (next-instruction) nil))))
+
+(defun call-near ()
+  (disasm-instr (list "call" (twos-complement (reverse-little-endian (next-instruction) (next-instruction)) t))
+    (push-to-stack (+ (register :ip) 2))
+    (incf (register :ip) (twos-complement (reverse-little-endian (next-instruction) (next-instruction)) t))))
+
+(defun ret-from-call ()
+  (disasm-instr '("ret")
+    (setf (register :ip) (pop-from-stack))))
+
 ;;; Opcode parsing
 
 (defun in-8-byte-block-p (opcode block)
@@ -210,7 +231,10 @@
     ((in-8-byte-block-p opcode #xb0) (mov-byte-to-register opcode))
     ((in-8-byte-block-p opcode #xb8) (with-one-byte-opcode-register opcode (mov-word-to-register reg)))
     ((= opcode #xf8) (clear-carry-flag))
-    ((= opcode #xf9) (set-carry-flag))))
+    ((= opcode #xf9) (set-carry-flag))
+    ((= opcode #xeb) (jmp-short))
+    ((= opcode #xe8) (call-near))
+    ((= opcode #xc3) (ret-from-call))))
 
 ;;; Main functions
 
@@ -249,4 +273,4 @@
 
 ;;; Test instructions
 
-(defparameter *test-instructions* #(#x40 #x40 #x40 #x91 #xb0 #xff #x50 #x5a #x52 #x51 #x48 #xbe #x02 #x03 #xf4) "Test instructions")
+(defparameter *test-instructions* #(#x40 #x40 #x40 #x91 #xb0 #xff #x50 #x5a #x51 #xeb #x05 #x52 #x48 #xbe #x02 #x03 #xf4) "Test instructions")
