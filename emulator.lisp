@@ -221,6 +221,46 @@
   (disasm-instr (list "jmp" :op1 (twos-complement (next-instruction) nil))
     (incf (register :ip) (twos-complement (next-instruction) nil))))
 
+(defun jmp-short-when-cf ()
+  (disasm-instr (list "jb" :op1 (twos-complement (next-instruction) nil))
+    (when (flag-p :cf)
+      (incf (register :ip) (twos-complement (next-instruction) nil)))))
+
+(defun jmp-short-unless-cf ()
+  (disasm-instr (list "jnb" :op1 (twos-complement (next-instruction) nil))
+    (unless (flag-p :cf)
+      (incf (register :ip) (twos-complement (next-instruction) nil)))))
+
+(defun jmp-short-when-zf ()
+  (disasm-instr (list "jz" :op1 (twos-complement (next-instruction) nil))
+    (when (flag-p :zf)
+      (incf (register :ip) (twos-complement (next-instruction) nil)))))
+
+(defun jmp-short-unless-zf ()
+  (disasm-instr (list "jnz" :op1 (twos-complement (next-instruction) nil))
+    (unless (flag-p :zf)
+      (incf (register :ip) (twos-complement (next-instruction) nil)))))
+
+(defun jmp-short-when-cf-or-zf ()
+  (disasm-instr (list "jbe" :op1 (twos-complement (next-instruction) nil))
+    (when (or (flag-p :cf) (flag-p :zf))
+      (incf (register :ip) (twos-complement (next-instruction) nil)))))
+
+(defun jmp-short-unless-cf-or-zf ()
+  (disasm-instr (list "jnbe" :op1 (twos-complement (next-instruction) nil))
+    (unless (or (flag-p :cf) (flag-p :zf))
+      (incf (register :ip) (twos-complement (next-instruction) nil)))))
+
+(defun jmp-short-when-sf ()
+  (disasm-instr (list "js" :op1 (twos-complement (next-instruction) nil))
+    (when (flag-p :sf)
+      (incf (register :ip) (twos-complement (next-instruction) nil)))))
+
+(defun jmp-short-unless-sf ()
+  (disasm-instr (list "jns" :op1 (twos-complement (next-instruction) nil))
+    (unless (flag-p :sf)
+      (incf (register :ip) (twos-complement (next-instruction) nil)))))
+
 (defun call-near ()
   (disasm-instr (list "call" :op1 (twos-complement (next-word) t))
     (push-to-stack (+ (register :ip) 2))
@@ -250,6 +290,14 @@
     ((= opcode #xf8) (clear-carry-flag))
     ((= opcode #xf9) (set-carry-flag))
     ((= opcode #xeb) (jmp-short))
+    ((= opcode #x72) (jmp-short-when-cf))
+    ((= opcode #x73) (jmp-short-unless-cf))
+    ((= opcode #x74) (jmp-short-when-zf))
+    ((= opcode #x75) (jmp-short-unless-zf))
+    ((= opcode #x76) (jmp-short-when-cf-or-zf))
+    ((= opcode #x77) (jmp-short-unless-cf-or-zf))
+    ((= opcode #x78) (jmp-short-when-sf))
+    ((= opcode #x79) (jmp-short-unless-sf))
     ((= opcode #xe8) (call-near))
     ((= opcode #xc3) (ret-from-call))))
 
