@@ -163,15 +163,6 @@
   (disasm-instr '("stc")
     (setf (flag-p :cf) t)))
 
-(defun mov-byte-to-register (opcode)
-  (let ((reg (bits->byte-reg (mod opcode #x08))))
-    (disasm-instr (list "mov" :src (next-instruction) :dest reg)
-      (setf (byte-register reg) (next-instruction)))))
-
-(defun mov-word-to-register (reg)
-  (disasm-instr (list "mov" :src (next-word) :dest reg)
-    (setf (register reg) (next-word))))
-
 (defun push-register (reg)
   (disasm-instr (list "push" :src reg)
     (push-to-stack (register reg))))
@@ -191,6 +182,15 @@
 (defun xchg-register (reg)
   (disasm-instr (if (eql reg :ax) '("nop") (list "xchg" :op1 :ax :op2 reg))
     (rotatef (register :ax) (register reg))))
+
+(defun mov-byte-to-register (opcode)
+  (let ((reg (bits->byte-reg (mod opcode #x08))))
+    (disasm-instr (list "mov" :src (next-instruction) :dest reg)
+      (setf (byte-register reg) (next-instruction)))))
+
+(defun mov-word-to-register (reg)
+  (disasm-instr (list "mov" :src (next-word) :dest reg)
+    (setf (register reg) (next-word))))
 
 ;;; Opcode parsing
 
