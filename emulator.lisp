@@ -90,13 +90,15 @@
   (+ low (ash high 8)))
 
 (defun wrap-overflow (value is-word)
+  "Wrap around an overflowed value."
   (if is-word (mod value #x10000) (mod value #x100)))
 
 ;;; Instruction loader
 
-(defun load-instructions (instrs)
+(defun load-instructions-into-ram (instrs)
   (setf (register :ip) 0)
-  (setf (subseq *ram* 0 #x7fff) instrs))
+  (setf (subseq *ram* 0 #x7fff) instrs)
+  (length instrs))
 
 (defun next-instruction ()
   (incf (register :ip))
@@ -112,6 +114,7 @@
   (reverse-little-endian (elt segment loc) (elt segment (1+ loc))))
 
 (defun write-word-to-ram (loc word &optional (segment *ram*))
+  "Write a word to a RAM segment."
   (setf (elt segment loc) (logand word #x00ff))
   (setf (elt segment (1+ loc)) (ash (logand word #xff00) -8)))
 
@@ -126,7 +129,7 @@
 ;;; Flag effects
 
 (defun set-cf-on-add (value is-word)
-  (setf (flag-p :cf) (if is-word (>= (/ value #x10000) 1) (>= (/ value #x100) 1)))
+  (setf (flag-p :cf) (if is-word (>= value #x10000) (>= value #x100)))
   (wrap-overflow value is-word))
 
 (defun set-cf-on-sub (value1 value2)
@@ -134,7 +137,7 @@
   value1)
 
 (defun set-sf-on-op (value is-word)
-  (setf (flag-p :sf) (if is-word (>= (/ value #x8000) 1) (>= (/ value #x80) 1)))
+  (setf (flag-p :sf) (if is-word (>= value #x8000) (>= value #x80)))
   value)
 
 (defun set-zf-on-op (value)
@@ -197,6 +200,7 @@
 (defun parse-opcode (opcode)
   "Parse an opcode."
   (cond
+    ((not opcode) (return-from parse-opcode nil))
     ((= opcode #xf4) (return-from parse-opcode '("hlt")))
     ((in-8-byte-block-p opcode #x40) (with-one-byte-opcode-register opcode (inc-register reg)))
     ((in-8-byte-block-p opcode #x48) (with-one-byte-opcode-register opcode (dec-register reg)))
@@ -208,13 +212,41 @@
     ((= opcode #xf8) (clear-carry-flag))
     ((= opcode #xf9) (set-carry-flag))))
 
-(defun loop-instructions (&optional (return-disasm nil))
+;;; Main functions
+
+(defun execute-instructions ()
   "Loop through loaded instructions."
-  (setf *disasm* return-disasm)
+  (loop
+     for ret = (parse-opcode (next-instruction))
+     until (equal ret '("hlt"))
+     finally (return t)))
+
+(defun disasm-instructions (instr-length)
+  "Disassemble code."
   (loop
      for ret = (parse-opcode (next-instruction))
      collecting ret into disasm
-     until (equal ret '("hlt"))
-     finally (return (if return-disasm disasm t))))
+     until (= (register :ip) instr-length)
+     finally (return disasm)))
 
-(defparameter *test-instructions* #(#x40 #x40 #x40 #x91 #xb0 #xff #x50 #x5a #x52 #x51 #x48 #xbe #x02 #x03 #xf4))
+(defun loop-instructions (instr-length)
+  (if *disasm*
+      (disasm-instructions instr-length)
+      (execute-instructions)))
+
+(defun load-instructions-from-file (file)
+  (format t "~a" file) ; Placeholder
+  #())
+
+(defun load-instructions (&key (file nil))
+  (if file
+      (load-instructions-from-file file)
+      *test-instructions*))
+
+(defun main (&key (disasm nil) (file nil))
+  (setf *disasm* disasm)
+  (loop-instructions (load-instructions-into-ram (load-instructions :file file))))
+
+;;; Test instructions
+
+(defparameter *test-instructions* #(#x40 #x40 #x40 #x91 #xb0 #xff #x50 #x5a #x52 #x51 #x48 #xbe #x02 #x03 #xf4) "Test instructions")
