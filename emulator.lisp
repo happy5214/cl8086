@@ -43,6 +43,24 @@
 (defun bits->byte-reg (bits)
   (elt +bits-to-byte-register+ bits))
 
+;;; Convenience functions
+
+(defun reverse-little-endian (low high)
+  "Reverse a little-endian number."
+  (+ low (ash high 8)))
+
+(defun wrap-overflow (value is-word)
+  "Wrap around an overflowed value."
+  (if is-word (mod value #x10000) (mod value #x100)))
+
+(defun negative-p (value is-word)
+  (if is-word (>= value #x8000) (>= value #x80)))
+
+(defun twos-complement (value is-word)
+  (if (negative-p value is-word)
+      (- (1+ (logxor value (if is-word #xffff #xff))))
+      value))
+
 ;;; setf-able locations
 
 (defun register (reg)
@@ -83,23 +101,23 @@
 
 (defsetf flag-p set-flag-p)
 
-;;; Convenience functions
+(defun byte-in-ram (location &optional (segment *ram*))
+  "Read a byte from a RAM segment."
+  (elt segment location))
 
-(defun reverse-little-endian (low high)
-  "Reverse a little-endian number."
-  (+ low (ash high 8)))
+(defsetf byte-in-ram (location &optional (segment *ram*)) (value)
+  "Write a byte to a RAM segment."
+  `(setf (elt ,segment ,location) ,value))
 
-(defun wrap-overflow (value is-word)
-  "Wrap around an overflowed value."
-  (if is-word (mod value #x10000) (mod value #x100)))
+(defun word-in-ram (location &optional (segment *ram*))
+  "Read a word from a RAM segment."
+  (reverse-little-endian (elt segment location) (elt segment (1+ location))))
 
-(defun negative-p (value is-word)
-  (if is-word (>= value #x8000) (>= value #x80)))
-
-(defun twos-complement (value is-word)
-  (if (negative-p value is-word)
-      (- (1+ (logxor value (if is-word #xffff #xff))))
-      value))
+(defsetf word-in-ram (location &optional (segment *ram*)) (value)
+  "Write a word to a RAM segment."
+  `(progn
+     (setf (elt ,segment ,location) (logand ,value #x00ff))
+     (setf (elt ,segment (1+ ,location)) (ash (logand ,value #xff00) -8))))
 
 ;;; Instruction loader
 
@@ -118,13 +136,10 @@
 ;;; Memory access
 
 (defun read-word-from-ram (loc &optional (segment *ram*))
-  "Read a word from a RAM segment."
-  (reverse-little-endian (elt segment loc) (elt segment (1+ loc))))
+  (word-in-ram loc segment))
 
 (defun write-word-to-ram (loc word &optional (segment *ram*))
-  "Write a word to a RAM segment."
-  (setf (elt segment loc) (logand word #x00ff))
-  (setf (elt segment (1+ loc)) (ash (logand word #xff00) -8)))
+  (setf (word-in-ram loc segment) word))
 
 (defun push-to-stack (value)
   (decf (register :sp) 2)
