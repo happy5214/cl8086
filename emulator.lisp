@@ -257,6 +257,37 @@
   `(disasm-instr (list "add" :src ,src :dest ,dest)
      (set-zf-on-op (set-sf-on-op (set-cf-on-add (incf ,src ,dest) ,is-word) ,is-word))))
 
+(defmacro add-with-carry (src dest is-word)
+  `(disasm-instr (list "adc" :src ,src :dest ,dest)
+     (set-zf-on-op (set-sf-on-op (set-cf-on-add (incf ,src (+ ,dest (flag :cf))) ,is-word) ,is-word))))
+
+(defmacro sub-without-borrow (src dest is-word)
+  `(disasm-instr (list "sub" :src ,src :dest ,dest)
+     (set-zf-on-op (set-sf-on-op (set-cf-on-sub (decf ,src ,dest) ,dest) ,is-word))))
+
+(defmacro sub-with-borrow (src dest is-word)
+  `(disasm-instr (list "sbb" :src ,src :dest ,dest)
+     (set-zf-on-op (set-sf-on-op (set-cf-on-sub (decf ,src (+ ,dest (flag :cf))) (+ ,dest (flag :cf))) ,is-word))))
+
+(defmacro cmp-operation (src dest is-word)
+  `(disasm-instr (list "cmp" :src ,src :dest ,dest)
+     (set-zf-on-op (set-sf-on-op (set-cf-on-sub (- ,src ,dest) ,dest) ,is-word))))
+
+(defmacro and-operation (src dest is-word)
+  `(disasm-instr (list "and" :src ,src :dest ,dest)
+     (set-zf-on-op (set-sf-on-op (setf ,src (logand ,src ,dest)) ,is-word))
+     (setf (flag-p :cf) nil)))
+
+(defmacro or-operation (src dest is-word)
+  `(disasm-instr (list "or" :src ,src :dest ,dest)
+     (set-zf-on-op (set-sf-on-op (setf ,src (logior ,src ,dest)) ,is-word))
+     (setf (flag-p :cf) nil)))
+
+(defmacro xor-operation (src dest is-word)
+  `(disasm-instr (list "xor" :src ,src :dest ,dest)
+     (set-zf-on-op (set-sf-on-op (setf ,src (logxor ,src ,dest)) ,is-word))
+     (setf (flag-p :cf) nil)))
+
 ;;; Opcode parsing
 
 (defun in-paired-byte-block-p (opcode block)
@@ -289,7 +320,14 @@
     ((in-paired-byte-block-p opcode #x78) (jmp-short-conditionally opcode (flag-p :sf) "s"))
     ((= opcode #xe8) (call-near))
     ((= opcode #xc3) (ret-from-call))
-    ((in-6-byte-block-p opcode #x00) (parse-alu-opcode opcode add-without-carry))))
+    ((in-6-byte-block-p opcode #x00) (parse-alu-opcode opcode add-without-carry))
+    ((in-6-byte-block-p opcode #x08) (parse-alu-opcode opcode or-operation))
+    ((in-6-byte-block-p opcode #x10) (parse-alu-opcode opcode add-with-carry))
+    ((in-6-byte-block-p opcode #x18) (parse-alu-opcode opcode sub-with-borrow))
+    ((in-6-byte-block-p opcode #x20) (parse-alu-opcode opcode and-operation))
+    ((in-6-byte-block-p opcode #x28) (parse-alu-opcode opcode sub-without-borrow))
+    ((in-6-byte-block-p opcode #x30) (parse-alu-opcode opcode xor-operation))
+    ((in-6-byte-block-p opcode #x38) (parse-alu-opcode opcode cmp-operation))))
 
 ;;; Main functions
 
