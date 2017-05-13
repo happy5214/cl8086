@@ -22,12 +22,18 @@
 
 (defparameter *disasm* nil "Whether to disassemble")
 
+(defmacro disasm-instr (on-disasm &body body)
+  `(if *disasm*
+       ,on-disasm
+       (progn ,@body)))
+
 ;;; State variables
 
 (defparameter *ram* (make-array (* 64 1024) :initial-element 0 :element-type '(unsigned-byte 8)) "Primary segment")
 (defparameter *stack* (make-array (* 64 1024) :initial-element 0 :element-type '(unsigned-byte 8)) "Stack segment")
 (defparameter *flags* '(:cf 0 :sf 0 :zf 0) "Flags")
-(defparameter *registers* '(:ax 0 :bx 0 :cx 0 :dx 0 :bp 0 :sp #x100 :si 0 :di 0 :ip 0) "Registers")
+(defparameter *registers* '(:ax 0 :bx 0 :cx 0 :dx 0 :bp 0 :sp #x100 :si 0 :di 0) "Registers")
+(defparameter *ip* 0 "Instruction pointer")
 
 ;;; Constants
 
@@ -64,7 +70,8 @@
 ;;; setf-able locations
 
 (defun register (reg)
-  (getf *registers* reg))
+  (disasm-instr reg
+    (getf *registers* reg)))
 
 (defun set-reg (reg value)
   (setf (getf *registers* reg) (wrap-overflow value t)))
@@ -72,10 +79,11 @@
 (defsetf register set-reg)
 
 (defun byte-register (reg)
-  (let* ((register-to-word (getf +byte-register-to-word+ reg)) (word (first register-to-word)))
-    (if (second register-to-word)
-	(ash (register word) -8)
-	(logand (register word) #x00ff))))
+  (disasm-instr reg
+    (let* ((register-to-word (getf +byte-register-to-word+ reg)) (word (first register-to-word)))
+      (if (second register-to-word)
+	  (ash (register word) -8)
+	  (logand (register word) #x00ff)))))
 
 (defun set-byte-reg (reg value)
   (let* ((register-to-word (getf +byte-register-to-word+ reg)) (word (first register-to-word)) (wrapped-value (wrap-overflow value nil)))
@@ -122,13 +130,13 @@
 ;;; Instruction loader
 
 (defun load-instructions-into-ram (instrs)
-  (setf (register :ip) 0)
+  (setf *ip* 0)
   (setf (subseq *ram* 0 #x7fff) instrs)
   (length instrs))
 
 (defun next-instruction ()
-  (incf (register :ip))
-  (elt *ram* (1- (register :ip))))
+  (incf *ip*)
+  (elt *ram* (1- *ip*)))
 
 (defun next-word ()
   (reverse-little-endian (next-instruction) (next-instruction)))
@@ -169,14 +177,9 @@
 
 ;;; Operations
 
-(defmacro disasm-instr (on-disasm &body body)
-  `(if *disasm*
-       ,on-disasm
-       (progn ,@body)))
-
-(defmacro with-one-byte-opcode-register (opcode &body body)
-  `(let ((reg (bits->word-reg (mod ,opcode #x08))))
-     ,@body))
+(defun with-one-byte-opcode-register (opcode fn)
+  (let ((reg (bits->word-reg (mod opcode #x08))))
+    (funcall fn reg)))
 
 (defun clear-carry-flag ()
   (disasm-instr '("clc")
@@ -219,46 +222,64 @@
 
 (defun jmp-short ()
   (disasm-instr (list "jmp" :op1 (twos-complement (next-instruction) nil))
-    (incf (register :ip) (twos-complement (next-instruction) nil))))
+    (incf *ip* (twos-complement (next-instruction) nil))))
 
 (defmacro jmp-short-conditionally (opcode condition mnemonic)
   `(if (= (mod ,opcode #x02) 1)
        (disasm-instr (list (concatenate 'string "jn" ,mnemonic) :op1 (twos-complement (next-instruction) nil))
 	 (unless ,condition
-	   (incf (register :ip) (twos-complement (next-instruction) nil))))
+	   (incf *ip* (twos-complement (next-instruction) nil))))
        (disasm-instr (list (concatenate 'string "j" ,mnemonic) :op1 (twos-complement (next-instruction) nil))
 	 (when ,condition
-	   (incf (register :ip) (twos-complement (next-instruction) nil))))))
+	   (incf *ip* (twos-complement (next-instruction) nil))))))
 
 (defun call-near ()
   (disasm-instr (list "call" :op1 (twos-complement (next-word) t))
-    (push-to-stack (+ (register :ip) 2))
-    (incf (register :ip) (twos-complement (next-word) t))))
+    (push-to-stack (+ *ip* 2))
+    (incf *ip* (twos-complement (next-word) t))))
 
 (defun ret-from-call ()
   (disasm-instr '("ret")
-    (setf (register :ip) (pop-from-stack))))
+    (setf *ip* (pop-from-stack))))
+
+;; ALU
+
+(defmacro parse-alu-opcode (opcode operation)
+  `(let ((mod-8 (mod ,opcode 8)))
+     (cond
+       ; Add
+       ((= mod-8 4)
+	(,operation (byte-register :al) (next-instruction) nil))
+       ((= mod-8 5)
+	(,operation (register :ax) (next-word) t)))))
+
+(defmacro add-without-carry (src dest is-word)
+  `(disasm-instr (list "add" :src ,src :dest ,dest)
+     (set-zf-on-op (set-sf-on-op (set-cf-on-add (incf ,src ,dest) ,is-word) ,is-word))))
 
 ;;; Opcode parsing
+
+(defun in-paired-byte-block-p (opcode block)
+  (= (truncate (/ opcode 2)) (/ block 2)))
 
 (defun in-8-byte-block-p (opcode block)
   (= (truncate (/ opcode 8)) (/ block 8)))
 
-(defun in-paired-byte-block-p (opcode block)
-  (= (truncate (/ opcode 2)) (/ block 2)))
+(defun in-6-byte-block-p (opcode block)
+  (and (= (truncate (/ opcode 8)) (/ block 8)) (< (mod opcode 8) 6)))
 
 (defun parse-opcode (opcode)
   "Parse an opcode."
   (cond
     ((not opcode) (return-from parse-opcode nil))
     ((= opcode #xf4) (return-from parse-opcode '("hlt")))
-    ((in-8-byte-block-p opcode #x40) (with-one-byte-opcode-register opcode (inc-register reg)))
-    ((in-8-byte-block-p opcode #x48) (with-one-byte-opcode-register opcode (dec-register reg)))
-    ((in-8-byte-block-p opcode #x50) (with-one-byte-opcode-register opcode (push-register reg)))
-    ((in-8-byte-block-p opcode #x58) (with-one-byte-opcode-register opcode (pop-to-register reg)))
-    ((in-8-byte-block-p opcode #x90) (with-one-byte-opcode-register opcode (xchg-register reg)))
+    ((in-8-byte-block-p opcode #x40) (with-one-byte-opcode-register opcode #'inc-register))
+    ((in-8-byte-block-p opcode #x48) (with-one-byte-opcode-register opcode #'dec-register))
+    ((in-8-byte-block-p opcode #x50) (with-one-byte-opcode-register opcode #'push-register))
+    ((in-8-byte-block-p opcode #x58) (with-one-byte-opcode-register opcode #'pop-to-register))
+    ((in-8-byte-block-p opcode #x90) (with-one-byte-opcode-register opcode #'xchg-register))
     ((in-8-byte-block-p opcode #xb0) (mov-byte-to-register opcode))
-    ((in-8-byte-block-p opcode #xb8) (with-one-byte-opcode-register opcode (mov-word-to-register reg)))
+    ((in-8-byte-block-p opcode #xb8) (with-one-byte-opcode-register opcode #'mov-word-to-register))
     ((= opcode #xf8) (clear-carry-flag))
     ((= opcode #xf9) (set-carry-flag))
     ((= opcode #xeb) (jmp-short))
@@ -267,7 +288,8 @@
     ((in-paired-byte-block-p opcode #x76) (jmp-short-conditionally opcode (or (flag-p :cf) (flag-p :zf)) "be"))
     ((in-paired-byte-block-p opcode #x78) (jmp-short-conditionally opcode (flag-p :sf) "s"))
     ((= opcode #xe8) (call-near))
-    ((= opcode #xc3) (ret-from-call))))
+    ((= opcode #xc3) (ret-from-call))
+    ((in-6-byte-block-p opcode #x00) (parse-alu-opcode opcode add-without-carry))))
 
 ;;; Main functions
 
@@ -283,7 +305,7 @@
   (loop
      for ret = (parse-opcode (next-instruction))
      collecting ret into disasm
-     until (= (register :ip) instr-length)
+     until (= *ip* instr-length)
      finally (return disasm)))
 
 (defun loop-instructions (instr-length)
@@ -306,4 +328,4 @@
 
 ;;; Test instructions
 
-(defparameter *test-instructions* #(#x40 #x40 #x40 #x91 #xb0 #xff #x50 #x5a #x51 #x52 #x48 #x4b #x43 #x74 #x03 #xbe #x02 #x03 #xf4) "Test instructions")
+(defparameter *test-instructions* #(#x40 #x40 #x05 #x03 #x00 #x91 #xb0 #xff #x50 #x5a #x51 #x52 #x48 #x4b #x43 #x74 #x03 #xbe #x02 #x03 #xf4) "Test instructions")
