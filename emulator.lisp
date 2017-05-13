@@ -34,6 +34,7 @@
 (defparameter *flags* '(:cf 0 :sf 0 :zf 0) "Flags")
 (defparameter *registers* '(:ax 0 :bx 0 :cx 0 :dx 0 :bp 0 :sp #x100 :si 0 :di 0) "Registers")
 (defparameter *ip* 0 "Instruction pointer")
+(defparameter *has-overflowed* nil "Whether the last wraparound changed the value")
 
 ;;; Constants
 
@@ -57,7 +58,9 @@
 
 (defun wrap-overflow (value is-word)
   "Wrap around an overflowed value."
-  (if is-word (mod value #x10000) (mod value #x100)))
+  (let ((wrapped (if is-word (mod value #x10000) (mod value #x100))))
+    (setf *has-overflowed* (not (= wrapped value)))
+    wrapped))
 
 (defun negative-p (value is-word)
   (if is-word (>= value #x8000) (>= value #x80)))
@@ -159,9 +162,9 @@
 
 ;;; Flag effects
 
-(defun set-cf-on-add (value is-word)
-  (setf (flag-p :cf) (if is-word (>= value #x10000) (>= value #x100)))
-  (wrap-overflow value is-word))
+(defun set-cf-on-add (value)
+  (setf (flag-p :cf) *has-overflowed*)
+  value)
 
 (defun set-cf-on-sub (value1 value2)
   (setf (flag-p :cf) (> value2 value1))
@@ -255,11 +258,11 @@
 
 (defmacro add-without-carry (src dest is-word)
   `(disasm-instr (list "add" :src ,src :dest ,dest)
-     (set-zf-on-op (set-sf-on-op (set-cf-on-add (incf ,src ,dest) ,is-word) ,is-word))))
+     (set-zf-on-op (set-sf-on-op (set-cf-on-add (incf ,src ,dest)) ,is-word))))
 
 (defmacro add-with-carry (src dest is-word)
   `(disasm-instr (list "adc" :src ,src :dest ,dest)
-     (set-zf-on-op (set-sf-on-op (set-cf-on-add (incf ,src (+ ,dest (flag :cf))) ,is-word) ,is-word))))
+     (set-zf-on-op (set-sf-on-op (set-cf-on-add (incf ,src (+ ,dest (flag :cf)))) ,is-word))))
 
 (defmacro sub-without-borrow (src dest is-word)
   `(disasm-instr (list "sub" :src ,src :dest ,dest)
@@ -366,4 +369,4 @@
 
 ;;; Test instructions
 
-(defparameter *test-instructions* #(#x40 #x40 #x05 #x03 #x00 #x91 #xb0 #xff #x50 #x5a #x51 #x52 #x48 #x4b #x43 #x74 #x03 #xbe #x02 #x03 #xf4) "Test instructions")
+(defparameter *test-instructions* #(#x40 #x40 #x05 #x03 #x00 #x91 #xb0 #xff #x04 #x01 #x72 #x04 #x50 #x5a #x51 #x52 #x48 #x4b #x43 #x74 #x03 #xbe #x02 #x03 #xf4) "Test instructions")
