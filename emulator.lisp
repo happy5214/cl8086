@@ -137,19 +137,19 @@
 
 (defsetf flag-p set-flag-p)
 
-(defun byte-in-ram (location &optional (segment *ram*))
+(defun byte-in-ram (location segment)
   "Read a byte from a RAM segment."
   (elt segment location))
 
-(defsetf byte-in-ram (location &optional (segment *ram*)) (value)
+(defsetf byte-in-ram (location segment) (value)
   "Write a byte to a RAM segment."
   `(setf (elt ,segment ,location) ,value))
 
-(defun word-in-ram (location &optional (segment *ram*))
+(defun word-in-ram (location segment)
   "Read a word from a RAM segment."
   (reverse-little-endian (elt segment location) (elt segment (1+ location))))
 
-(defsetf word-in-ram (location &optional (segment *ram*)) (value)
+(defsetf word-in-ram (location segment) (value)
   "Write a word to a RAM segment."
   `(progn
      (setf (elt ,segment ,location) (logand ,value #x00ff))
@@ -168,18 +168,18 @@
 	    base-index))
     (let ((address-base (address-for-r/m mod-bits r/m-bits)))
       (case mod-bits
-	(#b00 (if is-word (word-in-ram address-base) (byte-in-ram address-base)))
-	(#b01 (if is-word (word-in-ram (+ address-base (next-instruction))) (byte-in-ram (+ address-base (next-instruction)))))
-	(#b10 (if is-word (word-in-ram (+ address-base (next-word))) (byte-in-ram (+ address-base (next-word)))))
+	(#b00 (if is-word (word-in-ram address-base *ram*) (byte-in-ram address-base *ram*)))
+	(#b01 (if is-word (word-in-ram (+ address-base (next-instruction)) *ram*) (byte-in-ram (+ address-base (next-instruction)) *ram*)))
+	(#b10 (if is-word (word-in-ram (+ address-base (next-word)) *ram*) (byte-in-ram (+ address-base (next-word)) *ram*)))
 	(#b11 (register (if is-word (bits->word-reg r/m-bits) (bits->byte-reg r/m-bits))))))))
 
 (defsetf indirect-address (mod-bits r/m-bits is-word) (value)
   "Write to an indirect address."
   `(let ((address-base (address-for-r/m ,mod-bits ,r/m-bits)))
     (case ,mod-bits
-      (#b00 (if ,is-word (setf (word-in-ram address-base) ,value) (setf (byte-in-ram address-base) ,value)))
-      (#b01 (if ,is-word (setf (word-in-ram (+ address-base (next-instruction))) ,value) (setf (byte-in-ram (+ address-base (next-instruction))) ,value)))
-      (#b10 (if ,is-word (setf (word-in-ram (+ address-base (next-word))) ,value) (setf (byte-in-ram (+ address-base (next-word))) ,value)))
+      (#b00 (if ,is-word (setf (word-in-ram address-base *ram*) ,value) (setf (byte-in-ram address-base *ram*) ,value)))
+      (#b01 (if ,is-word (setf (word-in-ram (+ address-base (next-instruction)) *ram*) ,value) (setf (byte-in-ram (+ address-base (next-instruction)) *ram*) ,value)))
+      (#b10 (if ,is-word (setf (word-in-ram (+ address-base (next-word)) *ram*) ,value) (setf (byte-in-ram (+ address-base (next-word)) *ram*) ,value)))
       (#b11 (setf (register (if ,is-word (bits->word-reg ,r/m-bits) (bits->byte-reg ,r/m-bits))) ,value)))))
 
 ;;; Instruction loader
