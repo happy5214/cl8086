@@ -81,12 +81,6 @@
   "Reverse a little-endian number."
   (+ low (ash high 8)))
 
-(defun wrap-overflow (value is-word)
-  "Wrap around an overflowed value."
-  (let ((wrapped (if is-word (mod value #x10000) (mod value #x100))))
-    (setf *has-overflowed* (not (= wrapped value)))
-    wrapped))
-
 (defun negative-p (value is-word)
   (if is-word (>= value #x8000) (>= value #x80)))
 
@@ -94,6 +88,14 @@
   (if (negative-p value is-word)
       (- (1+ (logxor value (if is-word #xffff #xff))))
       value))
+
+(defun wrap-overflow (value is-word)
+  "Wrap around an overflowed value."
+  (let ((overflow (if is-word (>= value #x10000) (>= value #x100))))
+    (setf *has-overflowed* overflow)
+    (if overflow
+	(if is-word (mod value #x10000) (mod value #x100))
+	value)))
 
 ;;; setf-able locations
 
@@ -362,10 +364,31 @@
      (set-zf-on-op (set-sf-on-op (setf ,dest (logxor ,src ,dest)) ,is-word))
      (setf (flag-p :cf) nil)))
 
+(defmacro parse-group1-byte (opcode operation mod-bits r/m-bits)
+  `(case (mod ,opcode 4)
+    (0 (,operation (next-instruction) (indirect-address ,mod-bits ,r/m-bits nil) nil))
+    (1 (,operation (next-word) (indirect-address ,mod-bits ,r/m-bits t) t))
+    (3 (,operation (sign-extend (next-instruction)) (indirect-address ,mod-bits ,r/m-bits t) t))))
+
+(defmacro parse-group1-opcode (opcode)
+  `(with-mod-r/m-byte
+     (case reg-bits
+       (0 (parse-group1-byte ,opcode add-without-carry mod-bits r/m-bits))
+       (1 (parse-group1-byte ,opcode or-operation mod-bits r/m-bits))
+       (2 (parse-group1-byte ,opcode add-with-carry mod-bits r/m-bits))
+       (3 (parse-group1-byte ,opcode sub-with-borrow mod-bits r/m-bits))
+       (4 (parse-group1-byte ,opcode and-operation mod-bits r/m-bits))
+       (5 (parse-group1-byte ,opcode sub-without-borrow mod-bits r/m-bits))
+       (6 (parse-group1-byte ,opcode xor-operation mod-bits r/m-bits))
+       (7 (parse-group1-byte ,opcode cmp-operation mod-bits r/m-bits)))))
+
 ;;; Opcode parsing
 
 (defun in-paired-byte-block-p (opcode block)
   (= (truncate (/ opcode 2)) (/ block 2)))
+
+(defun in-4-byte-block-p (opcode block)
+  (= (truncate (/ opcode 4)) (/ block 4)))
 
 (defun in-8-byte-block-p (opcode block)
   (= (truncate (/ opcode 8)) (/ block 8)))
@@ -401,7 +424,8 @@
     ((in-6-byte-block-p opcode #x20) (parse-alu-opcode opcode and-operation))
     ((in-6-byte-block-p opcode #x28) (parse-alu-opcode opcode sub-without-borrow))
     ((in-6-byte-block-p opcode #x30) (parse-alu-opcode opcode xor-operation))
-    ((in-6-byte-block-p opcode #x38) (parse-alu-opcode opcode cmp-operation))))
+    ((in-6-byte-block-p opcode #x38) (parse-alu-opcode opcode cmp-operation))
+    ((in-4-byte-block-p opcode #x80) (parse-group1-opcode opcode))))
 
 ;;; Main functions
 
@@ -440,4 +464,4 @@
 
 ;;; Test instructions
 
-(defparameter *test-instructions* #(#x40 #x40 #x05 #x03 #x00 #x91 #xb0 #xff #x04 #x01 #x72 #x04 #x50 #x5a #x51 #x52 #x48 #x4b #x43 #x74 #x03 #xbe #x02 #x03 #x01 #b11001111 #x47 #xf4) "Test instructions")
+(defparameter *test-instructions* #(#x40 #x40 #x05 #x03 #x00 #x91 #xb0 #xff #x04 #x01 #x72 #x04 #x50 #x5a #x51 #x52 #x48 #x4b #x43 #x74 #x03 #xbe #x02 #x03 #x01 #b11001111 #x47 #x83 #b11000111 #xfe #xf4) "Test instructions")
