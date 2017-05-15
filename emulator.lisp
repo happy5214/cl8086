@@ -382,6 +382,27 @@
        (6 (parse-group1-byte ,opcode xor-operation mod-bits r/m-bits))
        (7 (parse-group1-byte ,opcode cmp-operation mod-bits r/m-bits)))))
 
+;; Group 4/5 (inc/dec on EAs)
+
+(defmacro inc-indirect (indirect)
+  `(disasm-instr (list "inc" :op1 ,indirect)
+     (set-sf-on-op (set-zf-on-op (incf ,indirect)) t)))
+
+(defmacro dec-indirect (indirect)
+  `(disasm-instr (list "dec" :op1 ,indirect)
+     (set-sf-on-op (set-zf-on-op (decf ,indirect)) t)))
+
+(defmacro parse-group4/5-byte (opcode operation mod-bits r/m-bits)
+  `(if (evenp ,opcode)
+       (,operation (indirect-address ,mod-bits ,r/m-bits nil))
+       (,operation (indirect-address ,mod-bits ,r/m-bits t))))
+
+(defmacro parse-group4/5-opcode (opcode)
+  `(with-mod-r/m-byte
+     (case reg-bits
+       (0 (parse-group4/5-byte ,opcode inc-indirect mod-bits r/m-bits))
+       (1 (parse-group4/5-byte ,opcode dec-indirect mod-bits r/m-bits)))))
+
 ;;; Opcode parsing
 
 (defun in-paired-byte-block-p (opcode block)
@@ -425,7 +446,8 @@
     ((in-6-byte-block-p opcode #x28) (parse-alu-opcode opcode sub-without-borrow))
     ((in-6-byte-block-p opcode #x30) (parse-alu-opcode opcode xor-operation))
     ((in-6-byte-block-p opcode #x38) (parse-alu-opcode opcode cmp-operation))
-    ((in-4-byte-block-p opcode #x80) (parse-group1-opcode opcode))))
+    ((in-4-byte-block-p opcode #x80) (parse-group1-opcode opcode))
+    ((in-paired-byte-block-p opcode #xfe) (parse-group4/5-opcode opcode))))
 
 ;;; Main functions
 
@@ -464,4 +486,4 @@
 
 ;;; Test instructions
 
-(defparameter *test-instructions* #(#x40 #x40 #x05 #x03 #x00 #x91 #xb0 #xff #x04 #x01 #x72 #x04 #x50 #x5a #x51 #x52 #x48 #x4b #x43 #x74 #x03 #xbe #x02 #x03 #x01 #b11001111 #x47 #x83 #b11000111 #xfe #xf4) "Test instructions")
+(defparameter *test-instructions* #(#x40 #x40 #x05 #x03 #x00 #x91 #xb0 #xff #x04 #x01 #x72 #x04 #x50 #x5a #x51 #x52 #x48 #xff #b11001011 #x43 #x74 #x03 #xbe #x02 #x03 #x01 #b11001111 #x47 #x83 #b11000111 #xfe #xf4) "Test instructions")
