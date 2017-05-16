@@ -35,6 +35,7 @@
 (defparameter *registers* '(:ax 0 :bx 0 :cx 0 :dx 0 :bp 0 :sp #x100 :si 0 :di 0) "Registers")
 (defparameter *ip* 0 "Instruction pointer")
 (defparameter *has-overflowed* nil "Whether the last wraparound changed the value")
+(defparameter *advance* 0 "Bytes to advance IP by after an operation")
 
 ;;; Constants
 
@@ -52,7 +53,7 @@
 
 (defun address-for-r/m (mod-bits r/m-bits)
   (disasm-instr
-      (if (and (= mod-bits #b00) (= r/m-bits #b100))
+      (if (and (= mod-bits #b00) (= r/m-bits #b110))
 	  (list :disp (next-word))
 	  (case r/m-bits
 	    (#b000 (list :base :bx :index :si))
@@ -63,7 +64,7 @@
 	    (#b101 (list :index :di))
 	    (#b110 (list :base :bp))
 	    (#b111 (list :base :bx))))
-    (if (and (= mod-bits #b00) (= r/m-bits #b100))
+    (if (and (= mod-bits #b00) (= r/m-bits #b110))
 	(next-word)
 	(case r/m-bits
 	  (#b000 (+ (register :bx) (register :si)))
@@ -162,11 +163,12 @@
   (disasm-instr
       (if (= mod-bits #b11) (register (if is-word (bits->word-reg r/m-bits) (bits->byte-reg r/m-bits)))
 	  (let ((base-index (address-for-r/m mod-bits r/m-bits)))
-	    (setf (getf base-index :disp)
-		  (case mod-bits
-		    (#b00 0)
-		    (#b01 (next-instruction))
-		    (#b10 (next-word))))
+	    (unless (getf base-index :disp)
+	      (setf (getf base-index :disp)
+		    (case mod-bits
+		      (#b00 0)
+		      (#b01 (next-instruction))
+		      (#b10 (next-word)))))
 	    base-index))
     (let ((address-base (address-for-r/m mod-bits r/m-bits)))
       (case mod-bits
@@ -197,6 +199,28 @@
 
 (defun next-word ()
   (reverse-little-endian (next-instruction) (next-instruction)))
+
+(defun advance-ip ()
+  (incf *ip* *advance*)
+  (setf *advance* 0))
+
+(defun advance-ip-ahead-of-indirect-address (mod-bits r/m-bits)
+  (incf *ip* (cond
+	       ((or (and (= mod-bits #b00) (= r/m-bits #b110)) (= mod-bits #b10)) 2)
+	       ((= mod-bits #b01) 1)
+	       (t 0))))
+
+(defun next-instruction-ahead-of-indirect-address (mod-bits r/m-bits)
+  (let ((*ip* *ip*))
+    (advance-ip-ahead-of-indirect-address mod-bits r/m-bits)
+    (setf *advance* 1)
+    (next-instruction)))
+
+(defun next-word-ahead-of-indirect-address (mod-bits r/m-bits)
+  (let ((*ip* *ip*))
+    (advance-ip-ahead-of-indirect-address mod-bits r/m-bits)
+    (setf *advance* 2)
+    (next-word)))
 
 ;;; Memory access
 
@@ -390,9 +414,9 @@
 
 (defmacro parse-group1-byte (opcode operation mod-bits r/m-bits)
   `(case (mod ,opcode 4)
-    (0 (,operation (next-instruction) (indirect-address ,mod-bits ,r/m-bits nil) nil))
-    (1 (,operation (next-word) (indirect-address ,mod-bits ,r/m-bits t) t))
-    (3 (,operation (sign-extend (next-instruction)) (indirect-address ,mod-bits ,r/m-bits t) t))))
+    (0 (,operation (next-instruction-ahead-of-indirect-address ,mod-bits ,r/m-bits) (indirect-address ,mod-bits ,r/m-bits nil) nil))
+    (1 (,operation (next-word-ahead-of-indirect-address ,mod-bits ,r/m-bits) (indirect-address ,mod-bits ,r/m-bits t) t))
+    (3 (,operation (sign-extend (next-instruction-ahead-of-indirect-address ,mod-bits ,r/m-bits)) (indirect-address ,mod-bits ,r/m-bits t) t))))
 
 (defmacro parse-group1-opcode (opcode)
   `(parse-group-opcode
@@ -416,8 +440,8 @@
 
 (defmacro mov-immediate-to-memory (mod-bits r/m-bits is-word)
   `(if ,is-word
-       (mov (next-word) (indirect-address ,mod-bits ,r/m-bits t))
-       (mov (next-instruction) (indirect-address ,mod-bits ,r/m-bits nil))))
+       (mov (next-word-ahead-of-indirect-address ,mod-bits ,r/m-bits) (indirect-address ,mod-bits ,r/m-bits t))
+       (mov (next-instruction-ahead-of-indirect-address ,mod-bits ,r/m-bits) (indirect-address ,mod-bits ,r/m-bits nil))))
 
 (defmacro parse-group11-opcode (opcode)
   `(parse-group-opcode
@@ -505,6 +529,7 @@
   (loop
      for ret = (parse-opcode (next-instruction))
      until (equal ret '("hlt"))
+     do (advance-ip)
      finally (return t)))
 
 (defun disasm-instructions (instr-length)
@@ -513,6 +538,7 @@
      for ret = (parse-opcode (next-instruction))
      collecting ret into disasm
      until (= *ip* instr-length)
+     do (advance-ip)
      finally (return disasm)))
 
 (defun loop-instructions (instr-length)
