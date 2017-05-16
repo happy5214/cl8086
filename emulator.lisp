@@ -521,8 +521,10 @@
       (execute-instructions)))
 
 (defun load-instructions-from-file (file)
-  (format t "~a" file) ; Placeholder
-  #())
+  (with-open-file (in file :element-type '(unsigned-byte 8))
+    (let ((instrs (make-array (file-length in) :element-type '(unsigned-byte 8) :initial-element 0 :adjustable t)))
+      (read-sequence instrs in)
+      instrs)))
 
 (defun load-instructions (&key (file nil))
   (if file
