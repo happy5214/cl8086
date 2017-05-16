@@ -246,9 +246,31 @@
 
 ;; Templates
 
+(defmacro mov (src dest)
+  `(disasm-instr (list "mov" :src ,src :dest ,dest)
+     (setf ,dest ,src)))
+
 (defmacro xchg (op1 op2)
   `(disasm-instr (list "xchg" :op1 ,op1 :op2 ,op2)
      (rotatef ,op1 ,op2)))
+
+(defmacro inc (op1 is-word)
+  `(disasm-instr (list "inc" :op1 ,op1)
+     (set-sf-on-op (set-zf-on-op (incf ,op1)) ,is-word)))
+
+(defmacro dec (op1 is-word)
+  `(disasm-instr (list "dec" :op1 ,op1)
+     (set-sf-on-op (set-zf-on-op (decf ,op1)) ,is-word)))
+
+;; Group handling
+
+(defmacro parse-group-byte-pair (opcode operation mod-bits r/m-bits)
+  `(,operation ,mod-bits ,r/m-bits (oddp ,opcode)))
+
+(defmacro parse-group-opcode (&body body)
+  `(with-mod-r/m-byte
+     (case reg-bits
+       ,@body)))
 
 ;; One-byte opcodes on registers
 
@@ -269,12 +291,10 @@
     (setf (register reg) (pop-from-stack))))
 
 (defun inc-register (reg)
-  (disasm-instr (list "inc" :op1 reg)
-    (set-sf-on-op (set-zf-on-op (incf (register reg))) t)))
+  (inc (register reg) t))
 
 (defun dec-register (reg)
-  (disasm-instr (list "dec" :op1 reg)
-    (set-sf-on-op (set-zf-on-op (decf (register reg))) t)))
+  (dec (register reg) t))
 
 (defun xchg-register (reg)
   (disasm-instr (if (eql reg :ax) '("nop") (list "xchg" :op1 :ax :op2 reg))
@@ -282,12 +302,10 @@
 
 (defun mov-byte-to-register (opcode)
   (let ((reg (bits->byte-reg (mod opcode #x08))))
-    (disasm-instr (list "mov" :src (next-instruction) :dest reg)
-      (setf (byte-register reg) (next-instruction)))))
+    (mov (next-instruction) (byte-register reg))))
 
 (defun mov-word-to-register (reg)
-  (disasm-instr (list "mov" :src (next-word) :dest reg)
-    (setf (register reg) (next-word))))
+  (mov (next-word) (register reg)))
 
 ;; Flow control
 
@@ -377,16 +395,15 @@
     (3 (,operation (sign-extend (next-instruction)) (indirect-address ,mod-bits ,r/m-bits t) t))))
 
 (defmacro parse-group1-opcode (opcode)
-  `(with-mod-r/m-byte
-     (case reg-bits
-       (0 (parse-group1-byte ,opcode add-without-carry mod-bits r/m-bits))
-       (1 (parse-group1-byte ,opcode or-operation mod-bits r/m-bits))
-       (2 (parse-group1-byte ,opcode add-with-carry mod-bits r/m-bits))
-       (3 (parse-group1-byte ,opcode sub-with-borrow mod-bits r/m-bits))
-       (4 (parse-group1-byte ,opcode and-operation mod-bits r/m-bits))
-       (5 (parse-group1-byte ,opcode sub-without-borrow mod-bits r/m-bits))
-       (6 (parse-group1-byte ,opcode xor-operation mod-bits r/m-bits))
-       (7 (parse-group1-byte ,opcode cmp-operation mod-bits r/m-bits)))))
+  `(parse-group-opcode
+     (0 (parse-group1-byte ,opcode add-without-carry mod-bits r/m-bits))
+     (1 (parse-group1-byte ,opcode or-operation mod-bits r/m-bits))
+     (2 (parse-group1-byte ,opcode add-with-carry mod-bits r/m-bits))
+     (3 (parse-group1-byte ,opcode sub-with-borrow mod-bits r/m-bits))
+     (4 (parse-group1-byte ,opcode and-operation mod-bits r/m-bits))
+     (5 (parse-group1-byte ,opcode sub-without-borrow mod-bits r/m-bits))
+     (6 (parse-group1-byte ,opcode xor-operation mod-bits r/m-bits))
+     (7 (parse-group1-byte ,opcode cmp-operation mod-bits r/m-bits))))
 
 ;; Memory and register mov/xchg
 
@@ -397,26 +414,40 @@
 	  (xchg (register (bits->word-reg reg-bits)) (indirect-address mod-bits r/m-bits is-word))
 	  (xchg (byte-register (bits->byte-reg reg-bits)) (indirect-address mod-bits r/m-bits is-word))))))
 
+(defmacro mov-immediate-to-memory (mod-bits r/m-bits is-word)
+  `(if ,is-word
+       (mov (next-word) (indirect-address ,mod-bits ,r/m-bits t))
+       (mov (next-instruction) (indirect-address ,mod-bits ,r/m-bits nil))))
+
+(defmacro parse-group11-opcode (opcode)
+  `(parse-group-opcode
+     (0 (parse-group-byte-pair ,opcode mov-immediate-to-memory mod-bits r/m-bits))))
+
+(defmacro parse-mov-opcode (opcode)
+  `(let ((mod-4 (mod ,opcode 4)))
+     (with-mod-r/m-byte
+       (cond
+	 ((= mod-4 0)
+	  (mov (byte-register (bits->byte-reg reg-bits)) (indirect-address mod-bits r/m-bits nil)))
+	 ((= mod-4 1)
+	  (mov (register (bits->word-reg reg-bits)) (indirect-address mod-bits r/m-bits t)))
+	 ((= mod-4 2)
+	  (mov (indirect-address mod-bits r/m-bits nil) (byte-register (bits->byte-reg reg-bits))))
+	 ((= mod-4 3)
+	  (mov (indirect-address mod-bits r/m-bits t) (register (bits->word-reg reg-bits))))))))
+
 ;; Group 4/5 (inc/dec on EAs)
 
-(defmacro inc-indirect (indirect)
-  `(disasm-instr (list "inc" :op1 ,indirect)
-     (set-sf-on-op (set-zf-on-op (incf ,indirect)) t)))
+(defmacro inc-indirect (mod-bits r/m-bits is-word)
+  `(inc (indirect-address ,mod-bits ,r/m-bits ,is-word) ,is-word))
 
-(defmacro dec-indirect (indirect)
-  `(disasm-instr (list "dec" :op1 ,indirect)
-     (set-sf-on-op (set-zf-on-op (decf ,indirect)) t)))
-
-(defmacro parse-group4/5-byte (opcode operation mod-bits r/m-bits)
-  `(if (evenp ,opcode)
-       (,operation (indirect-address ,mod-bits ,r/m-bits nil))
-       (,operation (indirect-address ,mod-bits ,r/m-bits t))))
+(defmacro dec-indirect (mod-bits r/m-bits is-word)
+  `(dec (indirect-address ,mod-bits ,r/m-bits ,is-word) ,is-word))
 
 (defmacro parse-group4/5-opcode (opcode)
-  `(with-mod-r/m-byte
-     (case reg-bits
-       (0 (parse-group4/5-byte ,opcode inc-indirect mod-bits r/m-bits))
-       (1 (parse-group4/5-byte ,opcode dec-indirect mod-bits r/m-bits)))))
+  `(parse-group-opcode
+     (0 (parse-group-byte-pair ,opcode inc-indirect mod-bits r/m-bits))
+     (1 (parse-group-byte-pair ,opcode dec-indirect mod-bits r/m-bits))))
 
 ;;; Opcode parsing
 
@@ -462,7 +493,9 @@
     ((in-6-byte-block-p opcode #x30) (parse-alu-opcode opcode xor-operation))
     ((in-6-byte-block-p opcode #x38) (parse-alu-opcode opcode cmp-operation))
     ((in-4-byte-block-p opcode #x80) (parse-group1-opcode opcode))
+    ((in-4-byte-block-p opcode #x88) (parse-mov-opcode opcode))
     ((in-paired-byte-block-p opcode #x86) (xchg-memory-register opcode))
+    ((in-paired-byte-block-p opcode #xc6) (parse-group11-opcode opcode))
     ((in-paired-byte-block-p opcode #xfe) (parse-group4/5-opcode opcode))))
 
 ;;; Main functions
