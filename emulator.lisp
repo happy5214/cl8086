@@ -416,7 +416,7 @@
   `(case (mod ,opcode 4)
     (0 (,operation (next-instruction-ahead-of-indirect-address ,mod-bits ,r/m-bits) (indirect-address ,mod-bits ,r/m-bits nil) nil))
     (1 (,operation (next-word-ahead-of-indirect-address ,mod-bits ,r/m-bits) (indirect-address ,mod-bits ,r/m-bits t) t))
-    (3 (,operation (sign-extend (next-instruction-ahead-of-indirect-address ,mod-bits ,r/m-bits)) (indirect-address ,mod-bits ,r/m-bits t) t))))
+    (3 (,operation (next-instruction-ahead-of-indirect-address ,mod-bits ,r/m-bits) (indirect-address ,mod-bits ,r/m-bits t) t))))
 
 (defmacro parse-group1-opcode (opcode)
   `(parse-group-opcode
@@ -528,9 +528,10 @@
   "Loop through loaded instructions."
   (loop
      for ret = (parse-opcode (next-instruction))
+     collecting *ip* into ips
      until (equal ret '("hlt"))
      do (advance-ip)
-     finally (return t)))
+     finally (return ips)))
 
 (defun disasm-instructions (instr-length)
   "Disassemble code."
@@ -563,4 +564,4 @@
 
 ;;; Test instructions
 
-(defparameter *test-instructions* #(#x40 #x40 #x05 #x03 #x00 #x91 #xb0 #xff #x04 #x01 #x72 #x04 #x50 #x5a #x51 #x52 #x48 #xff #b11001011 #x43 #x74 #x03 #xbe #x02 #x03 #x01 #b11001111 #x47 #x83 #b11000111 #xfe #xf4) "Test instructions")
+(defparameter *test-instructions* #(#x40 #x40 #x05 #x03 #x00 #x91 #xb0 #xff #x04 #x01 #x72 #x04 #x50 #x5a #x51 #x52 #x48 #xff #b11001011 #x43 #x74 #xfd #xbe #x02 #x03 #x01 #b11001111 #x47 #x83 #b11000111 #xfe #xf4) "Test instructions")
