@@ -1,3 +1,4 @@
+#!/usr/bin/sbcl --script
 ;;;; Copyright (C) 2017 Alexander Jones
 ;;;;
 ;;;; Permission is hereby granted, free of charge, to any person obtaining a
@@ -578,7 +579,7 @@
 (defun load-instructions (&key (file nil))
   (if file
       (load-instructions-from-file file)
-      *test-instructions*))
+      #()))
 
 (defun print-video-ram (&key (width 80) (height 25) (stream t))
   (dotimes (line height)
@@ -595,6 +596,5 @@
   (when (and display (not disasm))
     (print-video-ram :stream stream)))
 
-;;; Test instructions
+(main :file "codegolf" :display t)
 
-(defparameter *test-instructions* #(#x40 #x40 #x05 #x03 #x00 #x91 #xb0 #xff #x04 #x01 #x72 #x04 #x50 #x5a #x51 #x52 #x48 #xff #b11001011 #x4b #x43 #x75 #xfd #xbe #x02 #x03 #x01 #b11001111 #x47 #x83 #b11000111 #xfe #xf4) "Test instructions")
