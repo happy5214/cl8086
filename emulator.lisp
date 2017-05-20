@@ -54,7 +54,7 @@
 (defun address-for-r/m (mod-bits r/m-bits)
   (disasm-instr
       (if (and (= mod-bits #b00) (= r/m-bits #b110))
-	  (list :disp (next-word))
+	  (list :disp (peek-at-word))
 	  (case r/m-bits
 	    (#b000 (list :base :bx :index :si))
 	    (#b001 (list :base :bx :index :di))
@@ -65,7 +65,7 @@
 	    (#b110 (list :base :bp))
 	    (#b111 (list :base :bx))))
     (if (and (= mod-bits #b00) (= r/m-bits #b110))
-	(next-word)
+	(peek-at-word)
 	(case r/m-bits
 	  (#b000 (+ (register :bx) (register :si)))
 	  (#b001 (+ (register :bx) (register :di)))
@@ -83,7 +83,7 @@
   (+ low (ash high 8)))
 
 (defun negative-p (value is-word)
-  (if is-word (>= value #x8000) (>= value #x80)))
+  (or (if is-word (>= value #x8000) (>= value #x80)) (< value 0)))
 
 (defun twos-complement (value is-word)
   (if (negative-p value is-word)
@@ -173,18 +173,18 @@
     (let ((address-base (address-for-r/m mod-bits r/m-bits)))
       (case mod-bits
 	(#b00 (if is-word (word-in-ram address-base *ram*) (byte-in-ram address-base *ram*)))
-	(#b01 (if is-word (word-in-ram (+ address-base (next-instruction)) *ram*) (byte-in-ram (+ address-base (next-instruction)) *ram*)))
-	(#b10 (if is-word (word-in-ram (+ address-base (next-word)) *ram*) (byte-in-ram (+ address-base (next-word)) *ram*)))
-	(#b11 (register (if is-word (bits->word-reg r/m-bits) (bits->byte-reg r/m-bits))))))))
+	(#b01 (if is-word (word-in-ram (+ address-base (peek-at-instruction)) *ram*) (byte-in-ram (+ address-base (peek-at-instruction)) *ram*)))
+	(#b10 (if is-word (word-in-ram (+ address-base (peek-at-word)) *ram*) (byte-in-ram (+ address-base (peek-at-word)) *ram*)))
+	(#b11 (if is-word (register (bits->word-reg r/m-bits)) (byte-register (bits->byte-reg r/m-bits))))))))
 
 (defsetf indirect-address (mod-bits r/m-bits is-word) (value)
   "Write to an indirect address."
   `(let ((address-base (address-for-r/m ,mod-bits ,r/m-bits)))
     (case ,mod-bits
       (#b00 (if ,is-word (setf (word-in-ram address-base *ram*) ,value) (setf (byte-in-ram address-base *ram*) ,value)))
-      (#b01 (if ,is-word (setf (word-in-ram (+ address-base (next-instruction)) *ram*) ,value) (setf (byte-in-ram (+ address-base (next-instruction)) *ram*) ,value)))
-      (#b10 (if ,is-word (setf (word-in-ram (+ address-base (next-word)) *ram*) ,value) (setf (byte-in-ram (+ address-base (next-word)) *ram*) ,value)))
-      (#b11 (setf (register (if ,is-word (bits->word-reg ,r/m-bits) (bits->byte-reg ,r/m-bits))) ,value)))))
+      (#b01 (if ,is-word (setf (word-in-ram (+ address-base (peek-at-instruction)) *ram*) ,value) (setf (byte-in-ram (+ address-base (peek-at-instruction)) *ram*) ,value)))
+      (#b10 (if ,is-word (setf (word-in-ram (+ address-base (peek-at-word)) *ram*) ,value) (setf (byte-in-ram (+ address-base (peek-at-word)) *ram*) ,value)))
+      (#b11 (if ,is-word (setf (register (bits->word-reg ,r/m-bits)) ,value) (setf (byte-register (bits->byte-reg ,r/m-bits)) ,value))))))
 
 ;;; Instruction loader
 
@@ -200,26 +200,33 @@
 (defun next-word ()
   (reverse-little-endian (next-instruction) (next-instruction)))
 
+(defun peek-at-instruction (&optional (forward 0))
+  (incf *advance*)
+  (elt *ram* (+ *ip* forward)))
+
+(defun peek-at-word ()
+  (reverse-little-endian (peek-at-instruction) (peek-at-instruction 1)))
+
 (defun advance-ip ()
   (incf *ip* *advance*)
   (setf *advance* 0))
 
 (defun advance-ip-ahead-of-indirect-address (mod-bits r/m-bits)
-  (incf *ip* (cond
-	       ((or (and (= mod-bits #b00) (= r/m-bits #b110)) (= mod-bits #b10)) 2)
-	       ((= mod-bits #b01) 1)
-	       (t 0))))
+  (cond
+    ((or (and (= mod-bits #b00) (= r/m-bits #b110)) (= mod-bits #b10)) 2)
+    ((= mod-bits #b01) 1)
+    (t 0)))
 
 (defun next-instruction-ahead-of-indirect-address (mod-bits r/m-bits)
   (let ((*ip* *ip*))
-    (advance-ip-ahead-of-indirect-address mod-bits r/m-bits)
-    (setf *advance* 1)
+    (incf *ip* (advance-ip-ahead-of-indirect-address mod-bits r/m-bits))
+    (incf *advance*)
     (next-instruction)))
 
 (defun next-word-ahead-of-indirect-address (mod-bits r/m-bits)
   (let ((*ip* *ip*))
-    (advance-ip-ahead-of-indirect-address mod-bits r/m-bits)
-    (setf *advance* 2)
+    (incf *ip* (advance-ip-ahead-of-indirect-address mod-bits r/m-bits))
+    (incf *advance* 2)
     (next-word)))
 
 ;;; Memory access
@@ -246,7 +253,7 @@
 
 (defun set-cf-on-sub (value1 value2)
   (setf (flag-p :cf) (> value2 value1))
-  value1)
+  (- value1 value2))
 
 (defun set-sf-on-op (value is-word)
   (setf (flag-p :sf) (negative-p value is-word))
@@ -267,6 +274,12 @@
 (defmacro with-mod-r/m-byte (&body body)
   `(let* ((mod-r/m (next-instruction)) (r/m-bits (logand mod-r/m #b00000111)) (mod-bits (ash (logand mod-r/m #b11000000) -6)) (reg-bits (ash (logand mod-r/m #b00111000) -3)))
      ,@body))
+
+(defmacro with-in-place-mod (dest mod-bits r/m-bits &body body)
+  `(progn
+     ,@body
+     (when (equal (car ',dest) 'indirect-address)
+       (decf *advance* (advance-ip-ahead-of-indirect-address ,mod-bits ,r/m-bits)))))
 
 ;; Templates
 
@@ -338,13 +351,14 @@
     (incf *ip* (twos-complement (next-instruction) nil))))
 
 (defmacro jmp-short-conditionally (opcode condition mnemonic)
-  `(if (= (mod ,opcode #x02) 1)
-       (disasm-instr (list (concatenate 'string "jn" ,mnemonic) :op1 (twos-complement (next-instruction) nil))
-	 (unless ,condition
-	   (incf *ip* (twos-complement (next-instruction) nil))))
-       (disasm-instr (list (concatenate 'string "j" ,mnemonic) :op1 (twos-complement (next-instruction) nil))
+  `(let ((disp (next-instruction)))
+     (if (evenp ,opcode)
+       (disasm-instr (list (concatenate 'string "j" ,mnemonic) :op1 (twos-complement disp nil))
 	 (when ,condition
-	   (incf *ip* (twos-complement (next-instruction) nil))))))
+	   (incf *ip* (twos-complement disp nil))))
+       (disasm-instr (list (concatenate 'string "jn" ,mnemonic) :op1 (twos-complement disp nil))
+	 (unless ,condition
+	   (incf *ip* (twos-complement disp nil)))))))
 
 (defun call-near ()
   (disasm-instr (list "call" :op1 (twos-complement (next-word) t))
@@ -359,64 +373,73 @@
 
 (defmacro parse-alu-opcode (opcode operation)
   `(let ((mod-8 (mod ,opcode 8)))
-     (cond
-       ((= mod-8 0)
+     (case mod-8
+       (0
 	(with-mod-r/m-byte
-	  (,operation (byte-register (bits->byte-reg reg-bits)) (indirect-address mod-bits r/m-bits nil) nil)))
-       ((= mod-8 1)
+	  (,operation (byte-register (bits->byte-reg reg-bits)) (indirect-address mod-bits r/m-bits nil) nil mod-bits r/m-bits)))
+       (1
 	(with-mod-r/m-byte
-	  (,operation (register (bits->word-reg reg-bits)) (indirect-address mod-bits r/m-bits t) t)))
-       ((= mod-8 2)
+	  (,operation (register (bits->word-reg reg-bits)) (indirect-address mod-bits r/m-bits t) t mod-bits r/m-bits)))
+       (2
 	(with-mod-r/m-byte
 	  (,operation (indirect-address mod-bits r/m-bits nil) (byte-register (bits->byte-reg reg-bits)) nil)))
-       ((= mod-8 3)
+       (3
 	(with-mod-r/m-byte
 	  (,operation (indirect-address mod-bits r/m-bits t) (register (bits->word-reg reg-bits)) t)))
-       ((= mod-8 4)
+       (4
 	(,operation (next-instruction) (byte-register :al) nil))
-       ((= mod-8 5)
+       (5
 	(,operation (next-word) (register :ax) t)))))
 
-(defmacro add-without-carry (src dest is-word)
+(defmacro add-without-carry (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "add" :src ,src :dest ,dest)
-     (set-zf-on-op (set-sf-on-op (set-cf-on-add (incf ,dest ,src)) ,is-word))))
+     (with-in-place-mod ,dest ,mod-bits ,r/m-bits
+       (set-zf-on-op (set-sf-on-op (set-cf-on-add (incf ,dest ,src)) ,is-word)))))
 
-(defmacro add-with-carry (src dest is-word)
+(defmacro add-with-carry (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "adc" :src ,src :dest ,dest)
-     (set-zf-on-op (set-sf-on-op (set-cf-on-add (incf ,dest (+ ,src (flag :cf)))) ,is-word))))
+     (with-in-place-mod ,dest ,mod-bits ,r/m-bits
+       (set-zf-on-op (set-sf-on-op (set-cf-on-add (incf ,dest (+ ,src (flag :cf)))) ,is-word)))))
 
-(defmacro sub-without-borrow (src dest is-word)
+(defmacro sub-without-borrow (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "sub" :src ,src :dest ,dest)
-     (set-zf-on-op (set-sf-on-op (set-cf-on-sub (decf ,dest ,src) ,src) ,is-word))))
+     (with-in-place-mod ,dest ,mod-bits ,r/m-bits
+       (let ((src-value ,src))
+	 (set-zf-on-op (set-sf-on-op (set-cf-on-sub (+ (decf ,dest src-value) src-value) src-value) ,is-word))))))
 
-(defmacro sub-with-borrow (src dest is-word)
+(defmacro sub-with-borrow (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "sbb" :src ,src :dest ,dest)
-     (set-zf-on-op (set-sf-on-op (set-cf-on-sub (decf ,dest (+ ,src (flag :cf))) (+ ,src (flag :cf))) ,is-word))))
+     (with-in-place-mod ,dest ,mod-bits ,r/m-bits
+       (let ((src-plus-cf (+ ,src (flag :cf))))
+	 (set-zf-on-op (set-sf-on-op (set-cf-on-sub (+ (decf ,dest src-plus-cf) src-plus-cf) src-plus-cf) ,is-word))))))
 
-(defmacro cmp-operation (src dest is-word)
+(defmacro cmp-operation (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "cmp" :src ,src :dest ,dest)
-     (set-zf-on-op (set-sf-on-op (set-cf-on-sub (- ,dest ,src) ,src) ,is-word))))
+     (set-zf-on-op (set-sf-on-op (set-cf-on-sub ,dest ,src) ,is-word))))
 
-(defmacro and-operation (src dest is-word)
+(defmacro and-operation (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "and" :src ,src :dest ,dest)
-     (set-zf-on-op (set-sf-on-op (setf ,dest (logand ,src ,dest)) ,is-word))
-     (setf (flag-p :cf) nil)))
+     (with-in-place-mod ,dest ,mod-bits ,r/m-bits
+       (set-zf-on-op (set-sf-on-op (setf ,dest (logand ,src ,dest)) ,is-word))
+       (setf (flag-p :cf) nil))))
 
-(defmacro or-operation (src dest is-word)
+(defmacro or-operation (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "or" :src ,src :dest ,dest)
-     (set-zf-on-op (set-sf-on-op (setf ,dest (logior ,src ,dest)) ,is-word))
-     (setf (flag-p :cf) nil)))
+     (with-in-place-mod ,dest ,mod-bits ,r/m-bits
+       (set-zf-on-op (set-sf-on-op (setf ,dest (logior ,src ,dest)) ,is-word))
+       (setf (flag-p :cf) nil))))
 
-(defmacro xor-operation (src dest is-word)
+(defmacro xor-operation (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "xor" :src ,src :dest ,dest)
-     (set-zf-on-op (set-sf-on-op (setf ,dest (logxor ,src ,dest)) ,is-word))
-     (setf (flag-p :cf) nil)))
+     (with-in-place-mod ,dest ,mod-bits ,r/m-bits
+       (set-zf-on-op (set-sf-on-op (setf ,dest (logxor ,src ,dest)) ,is-word))
+       (setf (flag-p :cf) nil))))
 
 (defmacro parse-group1-byte (opcode operation mod-bits r/m-bits)
   `(case (mod ,opcode 4)
-    (0 (,operation (next-instruction-ahead-of-indirect-address ,mod-bits ,r/m-bits) (indirect-address ,mod-bits ,r/m-bits nil) nil))
-    (1 (,operation (next-word-ahead-of-indirect-address ,mod-bits ,r/m-bits) (indirect-address ,mod-bits ,r/m-bits t) t))
-    (3 (,operation (next-instruction-ahead-of-indirect-address ,mod-bits ,r/m-bits) (indirect-address ,mod-bits ,r/m-bits t) t))))
+    (0 (,operation (next-instruction-ahead-of-indirect-address ,mod-bits ,r/m-bits) (indirect-address ,mod-bits ,r/m-bits nil) nil mod-bits r/m-bits))
+    (1 (,operation (next-word-ahead-of-indirect-address ,mod-bits ,r/m-bits) (indirect-address ,mod-bits ,r/m-bits t) t mod-bits r/m-bits))
+    (3 (,operation (twos-complement (next-instruction-ahead-of-indirect-address ,mod-bits ,r/m-bits) nil) (indirect-address ,mod-bits ,r/m-bits t) t mod-bits r/m-bits))))
 
 (defmacro parse-group1-opcode (opcode)
   `(parse-group-opcode
@@ -450,14 +473,14 @@
 (defmacro parse-mov-opcode (opcode)
   `(let ((mod-4 (mod ,opcode 4)))
      (with-mod-r/m-byte
-       (cond
-	 ((= mod-4 0)
+       (case mod-4
+	 (0
 	  (mov (byte-register (bits->byte-reg reg-bits)) (indirect-address mod-bits r/m-bits nil)))
-	 ((= mod-4 1)
+	 (1
 	  (mov (register (bits->word-reg reg-bits)) (indirect-address mod-bits r/m-bits t)))
-	 ((= mod-4 2)
+	 (2
 	  (mov (indirect-address mod-bits r/m-bits nil) (byte-register (bits->byte-reg reg-bits))))
-	 ((= mod-4 3)
+	 (3
 	  (mov (indirect-address mod-bits r/m-bits t) (register (bits->word-reg reg-bits))))))))
 
 ;; Group 4/5 (inc/dec on EAs)
@@ -528,10 +551,9 @@
   "Loop through loaded instructions."
   (loop
      for ret = (parse-opcode (next-instruction))
-     collecting *ip* into ips
      until (equal ret '("hlt"))
      do (advance-ip)
-     finally (return ips)))
+     finally (return t)))
 
 (defun disasm-instructions (instr-length)
   "Disassemble code."
@@ -564,4 +586,4 @@
 
 ;;; Test instructions
 
-(defparameter *test-instructions* #(#x40 #x40 #x05 #x03 #x00 #x91 #xb0 #xff #x04 #x01 #x72 #x04 #x50 #x5a #x51 #x52 #x48 #xff #b11001011 #x43 #x74 #xfd #xbe #x02 #x03 #x01 #b11001111 #x47 #x83 #b11000111 #xfe #xf4) "Test instructions")
+(defparameter *test-instructions* #(#x40 #x40 #x05 #x03 #x00 #x91 #xb0 #xff #x04 #x01 #x72 #x04 #x50 #x5a #x51 #x52 #x48 #xff #b11001011 #x4b #x43 #x75 #xfd #xbe #x02 #x03 #x01 #b11001111 #x47 #x83 #b11000111 #xfe #xf4) "Test instructions")
