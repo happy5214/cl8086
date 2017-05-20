@@ -1,4 +1,3 @@
-#!/usr/bin/sbcl --script
 ;;;; Copyright (C) 2017 Alexander Jones
 ;;;;
 ;;;; Permission is hereby granted, free of charge, to any person obtaining a
@@ -581,20 +580,22 @@
       (load-instructions-from-file file)
       #()))
 
-(defun print-video-ram (&key (width 80) (height 25) (stream t))
+(defun print-video-ram (&key (width 80) (height 25) (stream t) (newline nil))
   (dotimes (line height)
     (dotimes (column width)
       (let ((char-at-cell (byte-in-ram (+ #x8000 (* line 80) column) *ram*)))
 	(if (zerop char-at-cell)
 	    (format stream "~a" #\Space)
 	    (format stream "~a" (code-char char-at-cell)))))
-    (format stream "~%")))
+    (if newline (format stream "~%"))))
 
-(defun main (&key (disasm nil) (file nil) (display nil) (stream t))
-  (setf *disasm* disasm)
+(defun disasm (&key (file nil))
+  (setf *disasm* t)
+  (loop-instructions (load-instructions-into-ram (load-instructions :file file))))
+
+(defun main (&key (file nil) (display nil) (stream t) (newline nil))
+  (setf *disasm* nil)
   (loop-instructions (load-instructions-into-ram (load-instructions :file file)))
-  (when (and display (not disasm))
-    (print-video-ram :stream stream)))
-
-(main :file "codegolf" :display t)
+  (when display
+    (print-video-ram :stream stream :newline newline)))
 
