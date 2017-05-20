@@ -580,9 +580,20 @@
       (load-instructions-from-file file)
       *test-instructions*))
 
-(defun main (&key (disasm nil) (file nil))
+(defun print-video-ram (&key (width 80) (height 25) (stream t))
+  (dotimes (line height)
+    (dotimes (column width)
+      (let ((char-at-cell (byte-in-ram (+ #x8000 (* line 80) column) *ram*)))
+	(if (zerop char-at-cell)
+	    (format stream "~a" #\Space)
+	    (format stream "~a" (code-char char-at-cell)))))
+    (format stream "~%")))
+
+(defun main (&key (disasm nil) (file nil) (display nil) (stream t))
   (setf *disasm* disasm)
-  (loop-instructions (load-instructions-into-ram (load-instructions :file file))))
+  (loop-instructions (load-instructions-into-ram (load-instructions :file file)))
+  (when (and display (not disasm))
+    (print-video-ram :stream stream)))
 
 ;;; Test instructions
 
