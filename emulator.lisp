@@ -34,7 +34,7 @@
 (defparameter *flags* '(:cf 0 :sf 0 :zf 0) "Flags")
 (defparameter *registers* '(:ax 0 :bx 0 :cx 0 :dx 0 :bp 0 :sp #x100 :si 0 :di 0) "Registers")
 (defparameter *ip* 0 "Instruction pointer")
-(defparameter *has-overflowed* nil "Whether the last wraparound changed the value")
+(defparameter *has-carried* nil "Whether the last wraparound changed the value")
 (defparameter *advance* 0 "Bytes to advance IP by after an operation")
 
 ;;; Constants
@@ -90,11 +90,11 @@
       (- (1+ (logxor value (if is-word #xffff #xff))))
       value))
 
-(defun wrap-overflow (value is-word)
-  "Wrap around an overflowed value."
-  (let ((overflow (if is-word (>= value #x10000) (>= value #x100))))
-    (setf *has-overflowed* overflow)
-    (if overflow
+(defun wrap-carry (value is-word)
+  "Wrap around an carried value."
+  (let ((carry (if is-word (>= value #x10000) (>= value #x100))))
+    (setf *has-carried* carry)
+    (if carry
 	(if is-word (mod value #x10000) (mod value #x100))
 	value)))
 
@@ -105,7 +105,7 @@
     (getf *registers* reg)))
 
 (defun set-reg (reg value)
-  (setf (getf *registers* reg) (wrap-overflow value t)))
+  (setf (getf *registers* reg) (wrap-carry value t)))
 
 (defsetf register set-reg)
 
@@ -117,7 +117,7 @@
 	  (logand (register word) #x00ff)))))
 
 (defun set-byte-reg (reg value)
-  (let* ((register-to-word (getf +byte-register-to-word+ reg)) (word (first register-to-word)) (wrapped-value (wrap-overflow value nil)))
+  (let* ((register-to-word (getf +byte-register-to-word+ reg)) (word (first register-to-word)) (wrapped-value (wrap-carry value nil)))
     (if (second register-to-word)
 	(setf (register word) (+ (ash wrapped-value 8) (logand (register word) #x00ff)))
 	(setf (register word) (+ wrapped-value (logand (register word) #xff00))))))
@@ -248,7 +248,7 @@
 ;;; Flag effects
 
 (defun set-cf-on-add (value)
-  (setf (flag-p :cf) *has-overflowed*)
+  (setf (flag-p :cf) *has-carried*)
   value)
 
 (defun set-cf-on-sub (value1 value2)
