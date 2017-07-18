@@ -9,7 +9,7 @@ Though I wrote the code from scratch, I did use Julien Aubert's Python emulator
 implementation (https://github.com/julienaubert/py8086) as a rough guide and
 a source of inspiration, as well as a template for this documentation.
 
-This is licensed under the MIT License. 
+My code is licensed under the MIT License. The "codegolf" program has an unknown license.
 
 Instruction Support
 -------------------
@@ -30,9 +30,6 @@ Currently supported
 - CF, SF, and ZF flags
 - Two fixed 64 kB segments of memory (general RAM and the stack)
 - Loading instructions via a vector
-
-Will be supported
-~~~~~~~~~~~~~~~~~
 - mov using memory operands
 - Basic arithmetic and logic (add, adc, sub, sbb, cmp, and, or, xor)
 - Unconditional flow control (call, ret, jmp)
