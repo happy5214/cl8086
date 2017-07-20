@@ -31,7 +31,7 @@
 
 (defparameter *ram* (make-array (* 64 1024) :initial-element 0 :element-type '(unsigned-byte 8)) "Primary segment")
 (defparameter *stack* (make-array (* 64 1024) :initial-element 0 :element-type '(unsigned-byte 8)) "Stack segment")
-(defparameter *flags* '(:cf 0 :of 0 :sf 0 :zf 0) "Flags")
+(defparameter *flags* '(:cf 0 :of 0 :pf 0 :sf 0 :zf 0) "Flags")
 (defparameter *registers* '(:ax 0 :bx 0 :cx 0 :dx 0 :bp 0 :sp #x100 :si 0 :di 0) "Registers")
 (defparameter *ip* 0 "Instruction pointer")
 (defparameter *has-carried* nil "Whether the last wraparound changed the value")
@@ -261,6 +261,10 @@
     (setf (flag-p :of) (and (eq neg1 (negative-p value2 is-word)) (not (eq neg1 (negative-p sum is-word)))))
     sum))
 
+(defun set-pf-on-op (value)
+  (setf (flag-p :pf) (evenp (logcount (logand #xff value))))
+  value)
+
 (defun set-sf-on-op (value is-word)
   (setf (flag-p :sf) (negative-p value is-word))
   value)
@@ -299,11 +303,11 @@
 
 (defmacro inc (op1 is-word)
   `(disasm-instr (list "inc" :op1 ,op1)
-     (set-of-on-op (set-sf-on-op (set-zf-on-op (incf ,op1)) ,is-word) 1 ,is-word)))
+     (set-of-on-op (set-pf-on-op (set-sf-on-op (set-zf-on-op (incf ,op1)) ,is-word)) 1 ,is-word)))
 
 (defmacro dec (op1 is-word)
   `(disasm-instr (list "dec" :op1 ,op1)
-     (set-of-on-op (set-sf-on-op (set-zf-on-op (decf ,op1)) ,is-word) -1 ,is-word))
+     (set-of-on-op (set-pf-on-op (set-sf-on-op (set-zf-on-op (decf ,op1)) ,is-word)) -1 ,is-word)))
 
 ;; Group handling
 
@@ -401,49 +405,49 @@
   `(disasm-instr (list "add" :src ,src :dest ,dest)
      (with-in-place-mod ,dest ,mod-bits ,r/m-bits
        (let ((src-value ,src))
-	 (set-zf-on-op (set-sf-on-op (set-of-on-op (set-cf-on-add (incf ,dest src-value)) src-value ,is-word) ,is-word))))))
+	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-add (incf ,dest src-value)) src-value ,is-word)) ,is-word))))))
 
 (defmacro add-with-carry (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "adc" :src ,src :dest ,dest)
      (with-in-place-mod ,dest ,mod-bits ,r/m-bits
        (let ((src-plus-cf (+ ,src (flag :cf))))
-	 (set-zf-on-op (set-sf-on-op (set-of-on-op (set-cf-on-add (incf ,dest src-plus-cf)) src-plus-cf ,is-word) ,is-word))))))
+	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-add (incf ,dest src-plus-cf)) src-plus-cf ,is-word)) ,is-word))))))
 
 (defmacro sub-without-borrow (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "sub" :src ,src :dest ,dest)
      (with-in-place-mod ,dest ,mod-bits ,r/m-bits
        (let ((src-value ,src))
-	 (set-zf-on-op (set-sf-on-op (set-of-on-op (set-cf-on-sub (+ (decf ,dest src-value) src-value) src-value) src-value ,is-word) ,is-word))))))
+	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-sub (+ (decf ,dest src-value) src-value) src-value) src-value ,is-word)) ,is-word))))))
 
 (defmacro sub-with-borrow (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "sbb" :src ,src :dest ,dest)
      (with-in-place-mod ,dest ,mod-bits ,r/m-bits
        (let ((src-plus-cf (+ ,src (flag :cf))))
-	 (set-zf-on-op (set-sf-on-op (set-of-on-op (set-cf-on-sub (+ (decf ,dest src-plus-cf) src-plus-cf) src-plus-cf) src-plus-cf ,is-word) ,is-word))))))
+	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-sub (+ (decf ,dest src-plus-cf) src-plus-cf) src-plus-cf) src-plus-cf ,is-word)) ,is-word))))))
 
 (defmacro cmp-operation (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "cmp" :src ,src :dest ,dest)
      (let ((src-value ,src))
-       (set-zf-on-op (set-sf-on-op (set-of-on-op (set-cf-on-sub ,dest src-value) src-value ,is-word) ,is-word)))))
+       (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-sub ,dest src-value) src-value ,is-word)) ,is-word)))))
 
 (defmacro and-operation (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "and" :src ,src :dest ,dest)
      (with-in-place-mod ,dest ,mod-bits ,r/m-bits
-       (set-zf-on-op (set-sf-on-op (setf ,dest (logand ,src ,dest)) ,is-word))
+       (set-zf-on-op (set-sf-on-op (set-pf-on-op (setf ,dest (logand ,src ,dest))) ,is-word))
        (setf (flag-p :cf) nil)
        (setf (flag-p :of) nil))))
 
 (defmacro or-operation (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "or" :src ,src :dest ,dest)
      (with-in-place-mod ,dest ,mod-bits ,r/m-bits
-       (set-zf-on-op (set-sf-on-op (setf ,dest (logior ,src ,dest)) ,is-word))
+       (set-zf-on-op (set-sf-on-op (set-pf-on-op (setf ,dest (logior ,src ,dest))) ,is-word))
        (setf (flag-p :cf) nil)
-       (setf (flag-p :of) nil)))
+       (setf (flag-p :of) nil))))
 
 (defmacro xor-operation (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "xor" :src ,src :dest ,dest)
      (with-in-place-mod ,dest ,mod-bits ,r/m-bits
-       (set-zf-on-op (set-sf-on-op (setf ,dest (logxor ,src ,dest)) ,is-word))
+       (set-zf-on-op (set-sf-on-op (set-pf-on-op (setf ,dest (logxor ,src ,dest))) ,is-word))
        (setf (flag-p :cf) nil)
        (setf (flag-p :of) nil))))
 
@@ -510,17 +514,20 @@
 
 ;;; Opcode parsing
 
+(defmacro in-x-byte-block-p (size)
+  `(= (truncate (/ opcode ,size)) (/ block ,size)))
+
 (defun in-paired-byte-block-p (opcode block)
-  (= (truncate (/ opcode 2)) (/ block 2)))
+  (in-x-byte-block-p 2))
 
 (defun in-4-byte-block-p (opcode block)
-  (= (truncate (/ opcode 4)) (/ block 4)))
+  (in-x-byte-block-p 4))
 
 (defun in-8-byte-block-p (opcode block)
-  (= (truncate (/ opcode 8)) (/ block 8)))
+  (in-x-byte-block-p 8))
 
 (defun in-6-byte-block-p (opcode block)
-  (and (= (truncate (/ opcode 8)) (/ block 8)) (< (mod opcode 8) 6)))
+  (and (in-8-byte-block-p opcode block) (< (mod opcode 8) 6)))
 
 (defun parse-opcode (opcode)
   "Parse an opcode."
@@ -542,6 +549,7 @@
     ((in-paired-byte-block-p opcode #x74) (jmp-short-conditionally opcode (flag-p :zf) "z"))
     ((in-paired-byte-block-p opcode #x76) (jmp-short-conditionally opcode (or (flag-p :cf) (flag-p :zf)) "be"))
     ((in-paired-byte-block-p opcode #x78) (jmp-short-conditionally opcode (flag-p :sf) "s"))
+    ((in-paired-byte-block-p opcode #x7a) (jmp-short-conditionally opcode (flag-p :pf) "p"))
     ((in-paired-byte-block-p opcode #x7c) (jmp-short-conditionally opcode (not (eq (flag-p :of) (flag-p :sf))) "l"))
     ((in-paired-byte-block-p opcode #x7e) (jmp-short-conditionally opcode (or (flag-p :zf) (not (eq (flag-p :of) (flag-p :sf)))) "le"))
     ((= opcode #xe8) (call-near))
