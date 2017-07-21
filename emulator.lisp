@@ -31,7 +31,7 @@
 
 (defparameter *ram* (make-array (* 64 1024) :initial-element 0 :element-type '(unsigned-byte 8)) "Primary segment")
 (defparameter *stack* (make-array (* 64 1024) :initial-element 0 :element-type '(unsigned-byte 8)) "Stack segment")
-(defparameter *flags* '(:cf 0 :of 0 :pf 0 :sf 0 :zf 0) "Flags")
+(defparameter *flags* '(:af 0 :cf 0 :of 0 :pf 0 :sf 0 :zf 0) "Flags")
 (defparameter *registers* '(:ax 0 :bx 0 :cx 0 :dx 0 :bp 0 :sp #x100 :si 0 :di 0) "Registers")
 (defparameter *ip* 0 "Instruction pointer")
 (defparameter *has-carried* nil "Whether the last wraparound changed the value")
@@ -140,6 +140,35 @@
   (setf (flag name) (if is-set 1 0)))
 
 (defsetf flag-p set-flag-p)
+
+(defun bit-vector->integer (bit-vector)
+  "Create a positive integer from a bit-vector."
+  (reduce #'(lambda (first-bit second-bit)
+              (+ (* first-bit 2) second-bit))
+          bit-vector))
+
+(defun flags-register (&optional (is-word t))
+  (let ((flags (vector 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0)))
+    (setf (elt flags (- 15 0)) (flag :cf))
+    (setf (elt flags (- 15 2)) (flag :pf))
+    (setf (elt flags (- 15 4)) (flag :af))
+    (setf (elt flags (- 15 6)) (flag :zf))
+    (setf (elt flags (- 15 7)) (flag :sf))
+    (when is-word
+	(setf (elt flags (- 15 11)) (flag :of)))
+    (bit-vector->integer flags)))
+
+(defun set-flags-register (value &optional (is-word t))
+  (setf (flag-p :cf) (logbitp 0 value))
+  (setf (flag-p :pf) (logbitp 2 value))
+  (setf (flag-p :af) (logbitp 4 value))
+  (setf (flag-p :zf) (logbitp 6 value))
+  (setf (flag-p :sf) (logbitp 7 value))
+  (when is-word
+      (setf (flag-p :of) (logbitp 11 value)))
+  value)
+
+(defsetf flags-register set-flags-register)
 
 (defun byte-in-ram (location segment)
   "Read a byte from a RAM segment."
@@ -512,6 +541,24 @@
      (0 (parse-group-byte-pair ,opcode inc-indirect mod-bits r/m-bits))
      (1 (parse-group-byte-pair ,opcode dec-indirect mod-bits r/m-bits))))
 
+;; FLAGS processing
+
+(defun push-flags ()
+  (disasm-instr '("pushf")
+    (push-to-stack (flags-register))))
+
+(defun pop-flags ()
+  (disasm-instr '("popf")
+    (setf (flags-register) (pop-from-stack))))
+
+(defun store-flags-to-ah ()
+  (disasm-instr '("sahf")
+    (setf (byte-register :ah) (flags-register nil))))
+
+(defun load-flags-from-ah ()
+  (disasm-instr '("lahf")
+    (setf (flags-register nil) (byte-register :ah))))
+
 ;;; Opcode parsing
 
 (defmacro in-x-byte-block-p (size)
@@ -566,7 +613,11 @@
     ((in-4-byte-block-p opcode #x88) (parse-mov-opcode opcode))
     ((in-paired-byte-block-p opcode #x86) (xchg-memory-register opcode))
     ((in-paired-byte-block-p opcode #xc6) (parse-group11-opcode opcode))
-    ((in-paired-byte-block-p opcode #xfe) (parse-group4/5-opcode opcode))))
+    ((in-paired-byte-block-p opcode #xfe) (parse-group4/5-opcode opcode))
+    ((= opcode #x9c) (push-flags))
+    ((= opcode #x9d) (pop-flags))
+    ((= opcode #x9e) (store-flags-to-ah))
+    ((= opcode #x9f) (load-flags-from-ah))))
 
 ;;; Main functions
 
