@@ -320,6 +320,16 @@
      (when (equal (car ',dest) 'indirect-address)
        (decf *advance* (advance-ip-ahead-of-indirect-address ,mod-bits ,r/m-bits)))))
 
+;; Group handling
+
+(defmacro parse-group-byte-pair (opcode operation mod-bits r/m-bits)
+  `(,operation ,mod-bits ,r/m-bits (oddp ,opcode)))
+
+(defmacro parse-group-opcode (&body body)
+  `(with-mod-r/m-byte
+     (case reg-bits
+       ,@body)))
+
 ;; Templates
 
 (defmacro mov (src dest)
@@ -337,16 +347,6 @@
 (defmacro dec (op1 is-word)
   `(disasm-instr (list "dec" :op1 ,op1)
      (set-of-on-op (set-pf-on-op (set-sf-on-op (set-zf-on-op (decf ,op1)) ,is-word)) -1 ,is-word)))
-
-;; Group handling
-
-(defmacro parse-group-byte-pair (opcode operation mod-bits r/m-bits)
-  `(,operation ,mod-bits ,r/m-bits (oddp ,opcode)))
-
-(defmacro parse-group-opcode (&body body)
-  `(with-mod-r/m-byte
-     (case reg-bits
-       ,@body)))
 
 ;; One-byte opcodes on registers
 
@@ -482,7 +482,7 @@
 
 (defmacro parse-group1-byte (opcode operation mod-bits r/m-bits)
   `(case (mod ,opcode 4)
-    (0 (,operation (next-instruction-ahead-of-indirect-address ,mod-bits ,r/m-bits) (indirect-address ,mod-bits ,r/m-bits nil) nil mod-bits r/m-bits))
+    ((0 2) (,operation (next-instruction-ahead-of-indirect-address ,mod-bits ,r/m-bits) (indirect-address ,mod-bits ,r/m-bits nil) nil mod-bits r/m-bits))
     (1 (,operation (next-word-ahead-of-indirect-address ,mod-bits ,r/m-bits) (indirect-address ,mod-bits ,r/m-bits t) t mod-bits r/m-bits))
     (3 (,operation (twos-complement (next-instruction-ahead-of-indirect-address ,mod-bits ,r/m-bits) nil) (indirect-address ,mod-bits ,r/m-bits t) t mod-bits r/m-bits))))
 
