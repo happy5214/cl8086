@@ -237,9 +237,14 @@
 (defun write-word-to-ram (loc word &optional (segment *ram*))
   (setf (word-in-ram loc segment) word))
 
-(defun push-to-stack (value)
-  (decf (register :sp) 2)
-  (write-word-to-ram (register :sp) value *stack*))
+(defmacro push-to-stack (value)
+  `(progn
+     (decf (register :sp) 2)
+     (write-word-to-ram (register :sp) ,value *stack*)))
+
+; (defun push-to-stack (value)
+;   (decf (register :sp) 2)
+;   (write-word-to-ram (register :sp) value *stack*))
 
 (defun pop-from-stack ()
   (incf (register :sp) 2)
