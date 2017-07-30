@@ -128,18 +128,20 @@
 (defun flag (name)
   (getf *flags* name))
 
-(defun set-flag (name value)
-  (setf (getf *flags* name) value))
-
-(defsetf flag set-flag)
+(defsetf flag (name) (value)
+  `(setf (getf *flags* ,name) ,value))
 
 (defun flag-p (name)
   (= (flag name) 1))
 
-(defun set-flag-p (name is-set)
-  (setf (flag name) (if is-set 1 0)))
+(defsetf flag-p (name) (is-set)
+  `(setf (flag ,name) (if ,is-set 1 0)))
 
-(defsetf flag-p set-flag-p)
+(defun set-flag (name)
+  (setf (flag-p name) t))
+
+(defun clear-flag (name)
+  (setf (flag-p name) nil))
 
 (defun bit-vector->integer (bit-vector)
   "Create a positive integer from a bit-vector."
@@ -282,6 +284,10 @@
 
 ;;; Flag effects
 
+(defun set-af-on-op (result operand)
+  (setf (flag-p :af) (not (= (logand result #xfff0) (logand (- result operand) #xfff0))))
+  result)
+
 (defun set-cf-on-add (value)
   (setf (flag-p :cf) *has-carried*)
   value)
@@ -345,13 +351,13 @@
   `(disasm-instr (list "xchg" :op1 ,op1 :op2 ,op2)
      (rotatef ,op1 ,op2)))
 
-(defmacro inc (op1 is-word)
-  `(disasm-instr (list "inc" :op1 ,op1)
-     (set-of-on-op (set-pf-on-op (set-sf-on-op (set-zf-on-op (incf ,op1)) ,is-word)) 1 ,is-word)))
+(defmacro inc (op is-word)
+  `(disasm-instr (list "inc" :op ,op)
+     (set-af-on-op (set-of-on-op (set-pf-on-op (set-sf-on-op (set-zf-on-op (incf ,op)) ,is-word)) 1 ,is-word) 1)))
 
-(defmacro dec (op1 is-word)
-  `(disasm-instr (list "dec" :op1 ,op1)
-     (set-of-on-op (set-pf-on-op (set-sf-on-op (set-zf-on-op (decf ,op1)) ,is-word)) -1 ,is-word)))
+(defmacro dec (op is-word)
+  `(disasm-instr (list "dec" :op ,op)
+     (set-af-on-op (set-of-on-op (set-pf-on-op (set-sf-on-op (set-zf-on-op (decf ,op)) ,is-word)) -1 ,is-word) -1)))
 
 ;; One-byte opcodes on registers
 
@@ -439,51 +445,51 @@
   `(disasm-instr (list "add" :src ,src :dest ,dest)
      (with-in-place-mod ,dest ,mod-bits ,r/m-bits
        (let ((src-value ,src))
-	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-add (incf ,dest src-value)) src-value ,is-word)) ,is-word))))))
+	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-add (set-af-on-op (incf ,dest src-value) src-value)) src-value ,is-word)) ,is-word))))))
 
 (defmacro add-with-carry (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "adc" :src ,src :dest ,dest)
      (with-in-place-mod ,dest ,mod-bits ,r/m-bits
        (let ((src-plus-cf (+ ,src (flag :cf))))
-	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-add (incf ,dest src-plus-cf)) src-plus-cf ,is-word)) ,is-word))))))
+	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-add (set-af-on-op (incf ,dest src-plus-cf) src-plus-cf)) src-plus-cf ,is-word)) ,is-word))))))
 
 (defmacro sub-without-borrow (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "sub" :src ,src :dest ,dest)
      (with-in-place-mod ,dest ,mod-bits ,r/m-bits
        (let ((src-value ,src))
-	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-sub (+ (decf ,dest src-value) src-value) src-value) src-value ,is-word)) ,is-word))))))
+	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-sub (set-af-on-op (+ (decf ,dest src-value) src-value) src-value) src-value) src-value ,is-word)) ,is-word))))))
 
 (defmacro sub-with-borrow (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "sbb" :src ,src :dest ,dest)
      (with-in-place-mod ,dest ,mod-bits ,r/m-bits
        (let ((src-plus-cf (+ ,src (flag :cf))))
-	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-sub (+ (decf ,dest src-plus-cf) src-plus-cf) src-plus-cf) src-plus-cf ,is-word)) ,is-word))))))
+	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-sub (set-af-on-op (+ (decf ,dest src-plus-cf) src-plus-cf) src-plus-cf) src-plus-cf) src-plus-cf ,is-word)) ,is-word))))))
 
 (defmacro cmp-operation (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "cmp" :src ,src :dest ,dest)
      (let ((src-value ,src))
-       (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-sub ,dest src-value) src-value ,is-word)) ,is-word)))))
+       (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-af-on-op (set-cf-on-sub ,dest src-value) src-value) src-value ,is-word)) ,is-word)))))
 
 (defmacro and-operation (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "and" :src ,src :dest ,dest)
      (with-in-place-mod ,dest ,mod-bits ,r/m-bits
        (set-zf-on-op (set-sf-on-op (set-pf-on-op (setf ,dest (logand ,src ,dest))) ,is-word))
-       (setf (flag-p :cf) nil)
-       (setf (flag-p :of) nil))))
+       (clear-flag :cf)
+       (clear-flag :of))))
 
 (defmacro or-operation (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "or" :src ,src :dest ,dest)
      (with-in-place-mod ,dest ,mod-bits ,r/m-bits
        (set-zf-on-op (set-sf-on-op (set-pf-on-op (setf ,dest (logior ,src ,dest))) ,is-word))
-       (setf (flag-p :cf) nil)
-       (setf (flag-p :of) nil))))
+       (clear-flag :cf)
+       (clear-flag :of))))
 
 (defmacro xor-operation (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "xor" :src ,src :dest ,dest)
      (with-in-place-mod ,dest ,mod-bits ,r/m-bits
        (set-zf-on-op (set-sf-on-op (set-pf-on-op (setf ,dest (logxor ,src ,dest))) ,is-word))
-       (setf (flag-p :cf) nil)
-       (setf (flag-p :of) nil))))
+       (clear-flag :cf)
+       (clear-flag :of))))
 
 (defmacro parse-group1-byte (opcode operation mod-bits r/m-bits)
   `(case (mod ,opcode 4)
@@ -564,6 +570,29 @@
   (disasm-instr '("lahf")
     (setf (flags-register nil) (byte-register :ah))))
 
+;; Binary-coded decimal
+
+(defun ascii-adjust-after-addition ()
+  (disasm-instr '("aaa")
+    (let ((adjusted (or (> (logand (byte-register :al) #x0f) 9) (flag-p :af))))
+      (if adjusted
+	  (incf (register :ax) #x106))
+      (setf (flag-p :af) adjusted)
+      (setf (flag-p :cf) adjusted))))
+
+(defun decimal-adjust-after-addition ()
+  (disasm-instr '("daa")
+    (if (or (> (logand (byte-register :al) #x0f) 9) (flag-p :af))
+	(progn
+	  (setf (byte-register :al) (wrap-carry (+ (byte-register :al) 6) nil))
+	  (setf (flag-p :cf) (or (flag-p :cf) *has-carried*))
+	  (set-flag :af))
+	(clear-flag :af))
+    (when (or (> (byte-register :al) #x9f) (flag-p :cf))
+      (setf (byte-register :al) (wrap-carry (+ (byte-register :al) #x60) nil))
+      (set-flag :cf))
+    (set-zf-on-op (set-sf-on-op (set-pf-on-op (byte-register :al)) nil))))
+
 ;;; Opcode parsing
 
 (defmacro in-x-byte-block-p (size)
@@ -622,7 +651,9 @@
     ((= opcode #x9c) (push-flags))
     ((= opcode #x9d) (pop-flags))
     ((= opcode #x9e) (store-flags-to-ah))
-    ((= opcode #x9f) (load-flags-from-ah))))
+    ((= opcode #x9f) (load-flags-from-ah))
+    ((= opcode #x27) (decimal-adjust-after-addition))
+    ((= opcode #x37) (ascii-adjust-after-addition))))
 
 ;;; Main functions
 
