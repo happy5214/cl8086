@@ -593,6 +593,29 @@
   (disasm-instr '("lahf")
     (setf (flags-register nil) (byte-register :ah))))
 
+;; Memory addressing
+
+(defun load-effective-address ()
+  "Load an effective address."
+  (with-mod-r/m-byte
+    (disasm-instr
+	(list "lea"
+	:src (let ((base-index (address-for-r/m mod-bits r/m-bits)))
+	  (unless (getf base-index :disp)
+	    (setf (getf base-index :disp)
+		  (case mod-bits
+		    (#b00 0)
+		    (#b01 (next-instruction))
+		    (#b10 (next-word)))))
+	  base-index)
+	:dest (register (bits->word-reg reg-bits)))
+      (let ((address-base (address-for-r/m mod-bits r/m-bits)))
+	(setf (register (bits->word-reg reg-bits))
+	      (case mod-bits
+		(#b00 address-base)
+		(#b01 (+ address-base (next-instruction)))
+		(#b10 (+ address-base (next-word)))))))))
+
 ;; Binary-coded decimal
 
 (defmacro ascii-adjust-after-add-or-sub (modifier)
@@ -689,6 +712,7 @@
     ((= opcode #x9d) (pop-flags))
     ((= opcode #x9e) (store-flags-to-ah))
     ((= opcode #x9f) (load-flags-from-ah))
+    ((= opcode #x8d) (load-effective-address))
     ((= opcode #x27) (decimal-adjust-after-addition))
     ((= opcode #x2f) (decimal-adjust-after-subtraction))
     ((= opcode #x37) (ascii-adjust-after-addition))
@@ -709,7 +733,7 @@
   (loop
      for ret = (parse-opcode (next-instruction))
      collecting ret into disasm
-     until (= *ip* instr-length)
+     until (>= *ip* instr-length)
      do (advance-ip)
      finally (return disasm)))
 
@@ -724,10 +748,10 @@
       (read-sequence instrs in)
       instrs)))
 
-(defun load-instructions (&key (file nil))
+(defun load-instructions (&key (file nil) (example #()))
   (if file
       (load-instructions-from-file file)
-      #()))
+      example))
 
 (defun print-video-ram (&key (width 80) (height 25) (stream t) (newline nil))
   (dotimes (line height)
@@ -738,13 +762,13 @@
 	    (format stream "~a" (code-char char-at-cell)))))
     (if newline (format stream "~%"))))
 
-(defun disasm (&key (file nil))
+(defun disasm (&key (file nil) (example #()))
   (setf *disasm* t)
-  (loop-instructions (load-instructions-into-ram (load-instructions :file file))))
+  (loop-instructions (load-instructions-into-ram (load-instructions :file file :example example))))
 
-(defun main (&key (file nil) (display nil) (stream t) (newline nil))
+(defun main (&key (file nil) (example #()) (display nil) (stream t) (newline nil))
   (setf *disasm* nil)
-  (loop-instructions (load-instructions-into-ram (load-instructions :file file)))
+  (loop-instructions (load-instructions-into-ram (load-instructions :file file :example example)))
   (when display
     (print-video-ram :stream stream :newline newline)))
 
