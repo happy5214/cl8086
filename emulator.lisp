@@ -93,11 +93,11 @@
 
 (defun wrap-carry (value is-word)
   "Wrap around a carried value."
-  (let ((carry (if is-word (>= value #x10000) (>= value #x100))))
+  (let* ((limit (if is-word #x10000 #x100)) (carry (>= value limit)))
     (setf *has-carried* carry)
     (if carry
-	(if is-word (mod value #x10000) (mod value #x100))
-	value)))
+	(mod value limit))
+    value))
 
 ;;; setf-able locations
 
@@ -121,7 +121,8 @@
   (let* ((register-to-word (getf +byte-register-to-word+ reg)) (word (first register-to-word)) (wrapped-value (wrap-carry value nil)))
     (if (second register-to-word)
 	(setf (register word) (+ (ash wrapped-value 8) (logand (register word) #x00ff)))
-	(setf (register word) (+ wrapped-value (logand (register word) #xff00))))))
+	(setf (register word) (+ wrapped-value (logand (register word) #xff00)))))
+  value)
 
 (defsetf byte-register set-byte-reg)
 
@@ -188,7 +189,8 @@
   "Write a word to a RAM segment."
   `(progn
      (setf (elt ,segment ,location) (logand ,value #x00ff))
-     (setf (elt ,segment (1+ ,location)) (ash (logand ,value #xff00) -8))))
+     (setf (elt ,segment (1+ ,location)) (ash (logand ,value #xff00) -8))
+     ,value))
 
 (defun indirect-address (mod-bits r/m-bits is-word)
   "Read from an indirect address."
@@ -216,7 +218,8 @@
       (#b00 (if ,is-word (setf (word-in-ram address-base *ram*) ,value) (setf (byte-in-ram address-base *ram*) ,value)))
       (#b01 (if ,is-word (setf (word-in-ram (+ address-base (peek-at-instruction)) *ram*) ,value) (setf (byte-in-ram (+ address-base (peek-at-instruction)) *ram*) ,value)))
       (#b10 (if ,is-word (setf (word-in-ram (+ address-base (peek-at-word)) *ram*) ,value) (setf (byte-in-ram (+ address-base (peek-at-word)) *ram*) ,value)))
-      (#b11 (if ,is-word (setf (register (bits->word-reg ,r/m-bits)) ,value) (setf (byte-register (bits->byte-reg ,r/m-bits)) ,value))))))
+      (#b11 (if ,is-word (setf (register (bits->word-reg ,r/m-bits)) ,value) (setf (byte-register (bits->byte-reg ,r/m-bits)) ,value))))
+    ,value))
 
 ;;; setf wrappers
 
@@ -292,9 +295,14 @@
 
 ;;; Flag effects
 
-(defun set-af-on-op (result operand)
-  (setf (flag-p :af) (not (= (logand result #xfff0) (logand (- result operand) #xfff0))))
-  result)
+(defun set-af-on-add (result operand1)
+  (let ((operand2 (- result operand1)))
+    (setf (flag-p :af) (> (+ (logand operand1 #x000f) (logand operand2 #x000f)) #x000f))
+    result))
+
+(defun set-af-on-sub (value1 value2)
+  (setf (flag-p :af) (> (logand value2 #x000f) (logand value1 #x000f)))
+  value1)
 
 (defun set-cf-on-add (value)
   (setf (flag-p :cf) *has-carried*)
@@ -453,30 +461,30 @@
   `(disasm-instr (list "add" :src ,src :dest ,dest)
      (with-in-place-mod ,dest ,mod-bits ,r/m-bits
        (let ((src-value ,src))
-	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-add (set-af-on-op (incf ,dest src-value) src-value)) src-value ,is-word)) ,is-word))))))
+	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-add (set-af-on-add (incf ,dest src-value) src-value)) src-value ,is-word)) ,is-word))))))
 
 (defmacro add-with-carry (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "adc" :src ,src :dest ,dest)
      (with-in-place-mod ,dest ,mod-bits ,r/m-bits
        (let ((src-plus-cf (+ ,src (flag :cf))))
-	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-add (set-af-on-op (incf ,dest src-plus-cf) src-plus-cf)) src-plus-cf ,is-word)) ,is-word))))))
+	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-add (set-af-on-add (incf ,dest src-plus-cf) src-plus-cf)) src-plus-cf ,is-word)) ,is-word))))))
 
 (defmacro sub-without-borrow (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "sub" :src ,src :dest ,dest)
      (with-in-place-mod ,dest ,mod-bits ,r/m-bits
        (let ((src-value ,src))
-	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-sub (set-af-on-op (+ (decf ,dest src-value) src-value) src-value) src-value) src-value ,is-word)) ,is-word))))))
+	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-sub (set-af-on-sub (+ (decf ,dest src-value) src-value) src-value) src-value) src-value ,is-word)) ,is-word))))))
 
 (defmacro sub-with-borrow (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "sbb" :src ,src :dest ,dest)
      (with-in-place-mod ,dest ,mod-bits ,r/m-bits
        (let ((src-plus-cf (+ ,src (flag :cf))))
-	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-sub (set-af-on-op (+ (decf ,dest src-plus-cf) src-plus-cf) src-plus-cf) src-plus-cf) src-plus-cf ,is-word)) ,is-word))))))
+	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-sub (set-af-on-sub (+ (decf ,dest src-plus-cf) src-plus-cf) src-plus-cf) src-plus-cf) src-plus-cf ,is-word)) ,is-word))))))
 
 (defmacro cmp-operation (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "cmp" :src ,src :dest ,dest)
      (let ((src-value ,src))
-       (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-af-on-op (set-cf-on-sub ,dest src-value) src-value) src-value ,is-word)) ,is-word)))))
+       (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-sub (set-af-on-sub ,dest src-value) src-value) src-value ,is-word)) ,is-word)))))
 
 (defmacro and-operation (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "and" :src ,src :dest ,dest)
@@ -580,26 +588,40 @@
 
 ;; Binary-coded decimal
 
-(defun ascii-adjust-after-add-or-sub (addition?)
-  (disasm-instr (if addition? '("aaa") '("aas"))
-    (let ((adjusted (or (> (logand (byte-register :al) #x0f) 9) (flag-p :af))))
-      (if adjusted
-	  (if addition? (incf (register :ax) #x106) (decf (register :ax) #x106)))
-      (setf (flag-p :af) adjusted)
-      (setf (flag-p :cf) adjusted)
-      (logandf (byte-register :al) #x0f))))
+(defmacro ascii-adjust-after-add-or-sub (modifier)
+  `(let ((adjusted (or (> (logand (byte-register :al) #x0f) 9) (flag-p :af))))
+     (when adjusted
+       (,modifier (register :ax) #x106))
+     (setf (flag-p :af) adjusted)
+     (setf (flag-p :cf) adjusted)
+     (logandf (byte-register :al) #x0f)))
 
-(defun decimal-adjust-after-add-or-sub (addition?)
-  (disasm-instr (if addition? '("daa") '("das"))
-    (let ((old-al (byte-register :al)) (old-cf (flag-p :cf))) 
-	  (when (or (> (logand (byte-register :al) #x0f) 9) (flag-p :af))
-	    (if addition? (incf (byte-register :al) 6) (decf (byte-register :al) 6))
-	    (setf (flag-p :cf) (or old-cf *has-carried*))
-	    (set-flag :af))
-	  (when (or (> old-al #x9f) old-cf)
-	    (if addition? (incf (byte-register :al) #x60) (decf (byte-register :al) #x60))
-	    (set-flag :cf))
-	  (set-zf-on-op (set-sf-on-op (set-pf-on-op (byte-register :al)) nil)))))
+(defmacro decimal-adjust-after-add-or-sub (modifier)
+  `(let ((old-al (byte-register :al)) (old-cf (flag-p :cf)))
+     (when (or (> (logand (byte-register :al) #x0f) 9) (flag-p :af))
+       (,modifier (byte-register :al) 6)
+       (setf (flag-p :cf) (or old-cf *has-carried*))
+       (set-flag :af))
+     (when (or (> old-al #x99) old-cf)
+       (,modifier (byte-register :al) #x60)
+       (set-flag :cf))
+     (set-zf-on-op (set-sf-on-op (set-pf-on-op (byte-register :al)) nil))))
+
+(defun ascii-adjust-after-addition ()
+  (disasm-instr '("aaa")
+    (ascii-adjust-after-add-or-sub incf)))
+
+(defun ascii-adjust-after-subtraction ()
+  (disasm-instr '("aas")
+    (ascii-adjust-after-add-or-sub decf)))
+
+(defun decimal-adjust-after-addition ()
+  (disasm-instr '("daa")
+    (decimal-adjust-after-add-or-sub incf)))
+
+(defun decimal-adjust-after-subtraction ()
+  (disasm-instr '("das")
+    (decimal-adjust-after-add-or-sub decf)))
 
 ;;; Opcode parsing
 
@@ -660,10 +682,10 @@
     ((= opcode #x9d) (pop-flags))
     ((= opcode #x9e) (store-flags-to-ah))
     ((= opcode #x9f) (load-flags-from-ah))
-    ((= opcode #x27) (decimal-adjust-after-add-or-sub t))
-    ((= opcode #x2f) (decimal-adjust-after-add-or-sub nil))
-    ((= opcode #x37) (ascii-adjust-after-add-or-sub t))
-    ((= opcode #x3f) (ascii-adjust-after-add-or-sub nil))))
+    ((= opcode #x27) (decimal-adjust-after-addition))
+    ((= opcode #x2f) (decimal-adjust-after-subtraction))
+    ((= opcode #x37) (ascii-adjust-after-addition))
+    ((= opcode #x3f) (ascii-adjust-after-subtraction))))
 
 ;;; Main functions
 
