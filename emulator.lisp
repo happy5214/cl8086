@@ -218,6 +218,14 @@
       (#b10 (if ,is-word (setf (word-in-ram (+ address-base (peek-at-word)) *ram*) ,value) (setf (byte-in-ram (+ address-base (peek-at-word)) *ram*) ,value)))
       (#b11 (if ,is-word (setf (register (bits->word-reg ,r/m-bits)) ,value) (setf (byte-register (bits->byte-reg ,r/m-bits)) ,value))))))
 
+;;; setf wrappers
+
+(defmacro setf-enhanced (fn place value)
+  `(setf ,place (,fn ,place ,value)))
+
+(defmacro logandf (place value)
+  `(setf-enhanced logand ,place ,value))
+
 ;;; Instruction loader
 
 (defun load-instructions-into-ram (instrs)
@@ -572,26 +580,26 @@
 
 ;; Binary-coded decimal
 
-(defun ascii-adjust-after-addition ()
-  (disasm-instr '("aaa")
+(defun ascii-adjust-after-add-or-sub (addition?)
+  (disasm-instr (if addition? '("aaa") '("aas"))
     (let ((adjusted (or (> (logand (byte-register :al) #x0f) 9) (flag-p :af))))
       (if adjusted
-	  (incf (register :ax) #x106))
+	  (if addition? (incf (register :ax) #x106) (decf (register :ax) #x106)))
       (setf (flag-p :af) adjusted)
-      (setf (flag-p :cf) adjusted))))
+      (setf (flag-p :cf) adjusted)
+      (logandf (byte-register :al) #x0f))))
 
-(defun decimal-adjust-after-addition ()
-  (disasm-instr '("daa")
-    (if (or (> (logand (byte-register :al) #x0f) 9) (flag-p :af))
-	(progn
-	  (setf (byte-register :al) (wrap-carry (+ (byte-register :al) 6) nil))
-	  (setf (flag-p :cf) (or (flag-p :cf) *has-carried*))
-	  (set-flag :af))
-	(clear-flag :af))
-    (when (or (> (byte-register :al) #x9f) (flag-p :cf))
-      (setf (byte-register :al) (wrap-carry (+ (byte-register :al) #x60) nil))
-      (set-flag :cf))
-    (set-zf-on-op (set-sf-on-op (set-pf-on-op (byte-register :al)) nil))))
+(defun decimal-adjust-after-add-or-sub (addition?)
+  (disasm-instr (if addition? '("daa") '("das"))
+    (let ((old-al (byte-register :al)) (old-cf (flag-p :cf))) 
+	  (when (or (> (logand (byte-register :al) #x0f) 9) (flag-p :af))
+	    (if addition? (incf (byte-register :al) 6) (decf (byte-register :al) 6))
+	    (setf (flag-p :cf) (or old-cf *has-carried*))
+	    (set-flag :af))
+	  (when (or (> old-al #x9f) old-cf)
+	    (if addition? (incf (byte-register :al) #x60) (decf (byte-register :al) #x60))
+	    (set-flag :cf))
+	  (set-zf-on-op (set-sf-on-op (set-pf-on-op (byte-register :al)) nil)))))
 
 ;;; Opcode parsing
 
@@ -652,8 +660,10 @@
     ((= opcode #x9d) (pop-flags))
     ((= opcode #x9e) (store-flags-to-ah))
     ((= opcode #x9f) (load-flags-from-ah))
-    ((= opcode #x27) (decimal-adjust-after-addition))
-    ((= opcode #x37) (ascii-adjust-after-addition))))
+    ((= opcode #x27) (decimal-adjust-after-add-or-sub t))
+    ((= opcode #x2f) (decimal-adjust-after-add-or-sub nil))
+    ((= opcode #x37) (ascii-adjust-after-add-or-sub t))
+    ((= opcode #x3f) (ascii-adjust-after-add-or-sub nil))))
 
 ;;; Main functions
 
