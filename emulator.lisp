@@ -93,11 +93,12 @@
 
 (defun wrap-carry (value is-word)
   "Wrap around a carried value."
-  (let* ((limit (if is-word #x10000 #x100)) (carry (>= value limit)))
-    (setf *has-carried* carry)
-    (if carry
-	(mod value limit))
-    value))
+  (let* ((limit (if is-word #x10000 #x100)) (carry (>= value limit)) (negative (minusp value)))
+    (setf *has-carried* (or carry negative))
+    (cond
+      (carry (mod value limit))
+      (negative (+ value limit))
+      (t value))))
 
 ;;; setf-able locations
 
@@ -312,10 +313,16 @@
   (setf (flag-p :cf) (> value2 value1))
   (- value1 value2))
 
-(defun set-of-on-op (sum value2 is-word)
-  (let* ((value1 (- sum value2)) (neg1 (negative-p value1 is-word)))
-    (setf (flag-p :of) (and (eq neg1 (negative-p value2 is-word)) (not (eq neg1 (negative-p sum is-word)))))
-    sum))
+(defmacro set-of-on-op (result operation)
+  `(let* ((value1 (,operation ,result value2)) (neg1 (negative-p value1 is-word)))
+     (setf (flag-p :of) (and (eq neg1 (negative-p value2 is-word)) (not (eq neg1 (negative-p ,result is-word)))))
+     ,result))
+
+(defun set-of-on-add (sum value2 is-word)
+  (set-of-on-op sum +))
+
+(defun set-of-on-sub (diff value2 is-word)
+  (set-of-on-op diff -))
 
 (defun set-pf-on-op (value)
   (setf (flag-p :pf) (evenp (logcount (logand #xff value))))
@@ -369,11 +376,11 @@
 
 (defmacro inc (op is-word)
   `(disasm-instr (list "inc" :op ,op)
-     (set-af-on-op (set-of-on-op (set-pf-on-op (set-sf-on-op (set-zf-on-op (incf ,op)) ,is-word)) 1 ,is-word) 1)))
+     (set-af-on-op (set-of-on-add (set-pf-on-op (set-sf-on-op (set-zf-on-op (incf ,op)) ,is-word)) 1 ,is-word) 1)))
 
 (defmacro dec (op is-word)
   `(disasm-instr (list "dec" :op ,op)
-     (set-af-on-op (set-of-on-op (set-pf-on-op (set-sf-on-op (set-zf-on-op (decf ,op)) ,is-word)) -1 ,is-word) -1)))
+     (set-af-on-op (set-of-on-sub (set-pf-on-op (set-sf-on-op (set-zf-on-op (decf ,op)) ,is-word)) 1 ,is-word) -1)))
 
 ;; One-byte opcodes on registers
 
@@ -461,30 +468,30 @@
   `(disasm-instr (list "add" :src ,src :dest ,dest)
      (with-in-place-mod ,dest ,mod-bits ,r/m-bits
        (let ((src-value ,src))
-	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-add (set-af-on-add (incf ,dest src-value) src-value)) src-value ,is-word)) ,is-word))))))
+	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-add (set-cf-on-add (set-af-on-add (incf ,dest src-value) src-value)) src-value ,is-word)) ,is-word))))))
 
 (defmacro add-with-carry (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "adc" :src ,src :dest ,dest)
      (with-in-place-mod ,dest ,mod-bits ,r/m-bits
        (let ((src-plus-cf (+ ,src (flag :cf))))
-	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-add (set-af-on-add (incf ,dest src-plus-cf) src-plus-cf)) src-plus-cf ,is-word)) ,is-word))))))
+	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-add (set-cf-on-add (set-af-on-add (incf ,dest src-plus-cf) src-plus-cf)) src-plus-cf ,is-word)) ,is-word))))))
 
 (defmacro sub-without-borrow (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "sub" :src ,src :dest ,dest)
      (with-in-place-mod ,dest ,mod-bits ,r/m-bits
        (let ((src-value ,src))
-	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-sub (set-af-on-sub (+ (decf ,dest src-value) src-value) src-value) src-value) src-value ,is-word)) ,is-word))))))
+	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-sub (set-cf-on-sub (set-af-on-sub (+ (decf ,dest src-value) src-value) src-value) src-value) src-value ,is-word)) ,is-word))))))
 
 (defmacro sub-with-borrow (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "sbb" :src ,src :dest ,dest)
      (with-in-place-mod ,dest ,mod-bits ,r/m-bits
        (let ((src-plus-cf (+ ,src (flag :cf))))
-	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-sub (set-af-on-sub (+ (decf ,dest src-plus-cf) src-plus-cf) src-plus-cf) src-plus-cf) src-plus-cf ,is-word)) ,is-word))))))
+	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-sub (set-cf-on-sub (set-af-on-sub (+ (decf ,dest src-plus-cf) src-plus-cf) src-plus-cf) src-plus-cf) src-plus-cf ,is-word)) ,is-word))))))
 
 (defmacro cmp-operation (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "cmp" :src ,src :dest ,dest)
      (let ((src-value ,src))
-       (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-op (set-cf-on-sub (set-af-on-sub ,dest src-value) src-value) src-value ,is-word)) ,is-word)))))
+       (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-sub (set-cf-on-sub (set-af-on-sub ,dest src-value) src-value) src-value ,is-word)) ,is-word)))))
 
 (defmacro and-operation (src dest is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "and" :src ,src :dest ,dest)
