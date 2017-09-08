@@ -23,19 +23,21 @@ Currently supported
 
 - inc and dec with registers
 - push and pop with registers
-- xchg with ax and another register (including nop)
+- xchg with registers and memory (including nop)
 - mov with register and either a word or byte immediate
 - mov using memory operands
 - hlt
 - stc and clc
 - all 8 general purpose byte and word registers
 - IP register
-- Flags: CF, OF, PF, SF, ZF
+- Flags: AF, CF, OF, PF, SF, ZF
 - Two fixed 64 kB segments of memory (general RAM and the stack)
 - Loading instructions via a vector
 - Basic arithmetic and logic (add, adc, sub, sbb, cmp, and, or, xor)
-- Unconditional flow control (call, ret, jmp)
+- Unconditional flow control (near call, near ret, short jmp)
 - Conditional jumps using the five implemented flags (jb/jnb, jz/jnz, jbe/jnbe, js/jns, jl/jnl, jle/jnle, jp/jnp, jo/jno)
+- BCD addition and subtraction (both packed and unpacked)
+- test
 
 May be supported later
 ~~~~~~~~~~~~~~~~~~~~~~
