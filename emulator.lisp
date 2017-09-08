@@ -180,7 +180,7 @@
 
 (defsetf byte-in-ram (location segment) (value)
   "Write a byte to a RAM segment."
-  `(setf (elt ,segment ,location) ,value))
+  `(setf (elt ,segment ,location) (logand ,value #xff)))
 
 (defun word-in-ram (location segment)
   "Read a word from a RAM segment."
@@ -603,9 +603,26 @@
 
 ;; Group 3 (arithmetic and logical operations)
 
+(defmacro not-operation (op mod-bits r/m-bits)
+  `(with-in-place-mod ,op ,mod-bits ,r/m-bits
+     (setf ,op (lognot ,op))))
+
+(defun not-indirect (mod-bits r/m-bits is-word)
+  (not-operation (indirect-address mod-bits r/m-bits is-word) mod-bits r/m-bits))
+
+; (defmacro neg-operation (op mod-bits r/m-bits)
+;   `(with-in-place-mod ,op ,mod-bits ,r/m-bits
+;      (setf ,op (- ,op))))
+
+; (defun neg-indirect (mod-bits r/m-bits is-word)
+;   (neg-operation (indirect-address mod-bits r/m-bits is-word) mod-bits r/m-bits))
+
 (defun parse-group3-opcode (opcode)
   (parse-group-opcode
-    (0 (parse-group-byte-pair opcode test-indirect-with-immediate mod-bits r/m-bits))))
+    (0 (parse-group-byte-pair opcode test-indirect-with-immediate mod-bits r/m-bits))
+    (2 (parse-group-byte-pair opcode not-indirect mod-bits r/m-bits))
+    ; (3 (parse-group-byte-pair opcode neg-indirect mod-bits r/m-bits))
+    ))
 
 ;; FLAGS processing
 
