@@ -376,11 +376,11 @@
 
 (defmacro inc (op is-word)
   `(disasm-instr (list "inc" :op ,op)
-     (set-af-on-op (set-of-on-add (set-pf-on-op (set-sf-on-op (set-zf-on-op (incf ,op)) ,is-word)) 1 ,is-word) 1)))
+     (set-af-on-add (set-of-on-add (set-pf-on-op (set-sf-on-op (set-zf-on-op (incf ,op)) ,is-word)) 1 ,is-word) 1)))
 
 (defmacro dec (op is-word)
   `(disasm-instr (list "dec" :op ,op)
-     (set-af-on-op (set-of-on-sub (set-pf-on-op (set-sf-on-op (set-zf-on-op (decf ,op)) ,is-word)) 1 ,is-word) -1)))
+     (set-af-on-sub (1+ (set-of-on-sub (set-pf-on-op (set-sf-on-op (set-zf-on-op (decf ,op)) ,is-word)) 1 ,is-word)) 1)))
 
 ;; One-byte opcodes on registers
 
