@@ -531,6 +531,32 @@
      (6 (parse-group1-byte ,opcode xor-operation mod-bits r/m-bits))
      (7 (parse-group1-byte ,opcode cmp-operation mod-bits r/m-bits))))
 
+;; test
+
+(defmacro test-operation (op1 op2 is-word)
+  `(disasm-instr (list "test" :op1 ,op1 :op2 ,op2)
+     (set-zf-on-op (set-sf-on-op (set-pf-on-op (logand ,op1 ,op2)) ,is-word))
+     (clear-flag :cf)
+     (clear-flag :of)))
+
+(defun test-accumulator-with-immediate (opcode)
+  (let ((is-word (oddp opcode)))
+    (if is-word
+      (test-operation (register :ax) (next-word) t)
+      (test-operation (byte-register :al) (next-instruction) nil))))
+
+(defun test-memory-register (opcode)
+  (with-mod-r/m-byte
+    (let ((is-word (oddp opcode)))
+      (if is-word
+	  (test-operation (register (bits->word-reg reg-bits)) (indirect-address mod-bits r/m-bits t) t)
+	  (test-operation (byte-register (bits->byte-reg reg-bits)) (indirect-address mod-bits r/m-bits nil) nil)))))
+
+(defun test-indirect-with-immediate (mod-bits r/m-bits is-word)
+  (if is-word
+      (test-operation (next-word-ahead-of-indirect-address mod-bits r/m-bits) (indirect-address mod-bits r/m-bits t) t)
+      (test-operation (next-instruction-ahead-of-indirect-address mod-bits r/m-bits) (indirect-address mod-bits r/m-bits nil) nil)))
+
 ;; Memory and register mov/xchg
 
 (defun xchg-memory-register (opcode)
@@ -574,6 +600,12 @@
   `(parse-group-opcode
      (0 (parse-group-byte-pair ,opcode inc-indirect mod-bits r/m-bits))
      (1 (parse-group-byte-pair ,opcode dec-indirect mod-bits r/m-bits))))
+
+;; Group 3 (arithmetic and logical operations)
+
+(defun parse-group3-opcode (opcode)
+  (parse-group-opcode
+    (0 (parse-group-byte-pair opcode test-indirect-with-immediate mod-bits r/m-bits))))
 
 ;; FLAGS processing
 
@@ -703,11 +735,14 @@
     ((in-6-byte-block-p opcode #x28) (parse-alu-opcode opcode sub-without-borrow))
     ((in-6-byte-block-p opcode #x30) (parse-alu-opcode opcode xor-operation))
     ((in-6-byte-block-p opcode #x38) (parse-alu-opcode opcode cmp-operation))
+    ((in-paired-byte-block-p opcode #xa8) (test-accumulator-with-immediate opcode))
+    ((in-paired-byte-block-p opcode #x84) (test-memory-register opcode))
     ((in-4-byte-block-p opcode #x80) (parse-group1-opcode opcode))
     ((in-4-byte-block-p opcode #x88) (parse-mov-opcode opcode))
     ((in-paired-byte-block-p opcode #x86) (xchg-memory-register opcode))
     ((in-paired-byte-block-p opcode #xc6) (parse-group11-opcode opcode))
     ((in-paired-byte-block-p opcode #xfe) (parse-group4/5-opcode opcode))
+    ((in-paired-byte-block-p opcode #xf6) (parse-group3-opcode opcode))
     ((= opcode #x9c) (push-flags))
     ((= opcode #x9d) (pop-flags))
     ((= opcode #x9e) (store-flags-to-ah))
