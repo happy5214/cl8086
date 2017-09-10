@@ -520,16 +520,16 @@
     (1 (,operation (next-word-ahead-of-indirect-address ,mod-bits ,r/m-bits) (indirect-address ,mod-bits ,r/m-bits t) t mod-bits r/m-bits))
     (3 (,operation (twos-complement (next-instruction-ahead-of-indirect-address ,mod-bits ,r/m-bits) nil) (indirect-address ,mod-bits ,r/m-bits t) t mod-bits r/m-bits))))
 
-(defmacro parse-group1-opcode (opcode)
-  `(parse-group-opcode
-     (0 (parse-group1-byte ,opcode add-without-carry mod-bits r/m-bits))
-     (1 (parse-group1-byte ,opcode or-operation mod-bits r/m-bits))
-     (2 (parse-group1-byte ,opcode add-with-carry mod-bits r/m-bits))
-     (3 (parse-group1-byte ,opcode sub-with-borrow mod-bits r/m-bits))
-     (4 (parse-group1-byte ,opcode and-operation mod-bits r/m-bits))
-     (5 (parse-group1-byte ,opcode sub-without-borrow mod-bits r/m-bits))
-     (6 (parse-group1-byte ,opcode xor-operation mod-bits r/m-bits))
-     (7 (parse-group1-byte ,opcode cmp-operation mod-bits r/m-bits))))
+(defun parse-group1-opcode (opcode)
+  (parse-group-opcode
+    (0 (parse-group1-byte opcode add-without-carry mod-bits r/m-bits))
+    (1 (parse-group1-byte opcode or-operation mod-bits r/m-bits))
+    (2 (parse-group1-byte opcode add-with-carry mod-bits r/m-bits))
+    (3 (parse-group1-byte opcode sub-with-borrow mod-bits r/m-bits))
+    (4 (parse-group1-byte opcode and-operation mod-bits r/m-bits))
+    (5 (parse-group1-byte opcode sub-without-borrow mod-bits r/m-bits))
+    (6 (parse-group1-byte opcode xor-operation mod-bits r/m-bits))
+    (7 (parse-group1-byte opcode cmp-operation mod-bits r/m-bits))))
 
 ;; test
 
@@ -566,40 +566,40 @@
 	  (xchg (register (bits->word-reg reg-bits)) (indirect-address mod-bits r/m-bits is-word))
 	  (xchg (byte-register (bits->byte-reg reg-bits)) (indirect-address mod-bits r/m-bits is-word))))))
 
-(defmacro mov-immediate-to-memory (mod-bits r/m-bits is-word)
-  `(if ,is-word
-       (mov (next-word-ahead-of-indirect-address ,mod-bits ,r/m-bits) (indirect-address ,mod-bits ,r/m-bits t))
-       (mov (next-instruction-ahead-of-indirect-address ,mod-bits ,r/m-bits) (indirect-address ,mod-bits ,r/m-bits nil))))
+(defun mov-immediate-to-memory (mod-bits r/m-bits is-word)
+  (if is-word
+      (mov (next-word-ahead-of-indirect-address mod-bits r/m-bits) (indirect-address mod-bits r/m-bits t))
+      (mov (next-instruction-ahead-of-indirect-address mod-bits r/m-bits) (indirect-address mod-bits r/m-bits nil))))
 
-(defmacro parse-group11-opcode (opcode)
-  `(parse-group-opcode
-     (0 (parse-group-byte-pair ,opcode mov-immediate-to-memory mod-bits r/m-bits))))
+(defun parse-group11-opcode (opcode)
+  (parse-group-opcode
+    (0 (parse-group-byte-pair opcode mov-immediate-to-memory mod-bits r/m-bits))))
 
-(defmacro parse-mov-opcode (opcode)
-  `(let ((mod-4 (mod ,opcode 4)))
-     (with-mod-r/m-byte
-       (case mod-4
-	 (0
-	  (mov (byte-register (bits->byte-reg reg-bits)) (indirect-address mod-bits r/m-bits nil)))
-	 (1
-	  (mov (register (bits->word-reg reg-bits)) (indirect-address mod-bits r/m-bits t)))
-	 (2
-	  (mov (indirect-address mod-bits r/m-bits nil) (byte-register (bits->byte-reg reg-bits))))
-	 (3
-	  (mov (indirect-address mod-bits r/m-bits t) (register (bits->word-reg reg-bits))))))))
+(defun parse-mov-opcode (opcode)
+  (let ((mod-4 (mod opcode 4)))
+    (with-mod-r/m-byte
+      (case mod-4
+	(0
+	 (mov (byte-register (bits->byte-reg reg-bits)) (indirect-address mod-bits r/m-bits nil)))
+	(1
+	 (mov (register (bits->word-reg reg-bits)) (indirect-address mod-bits r/m-bits t)))
+	(2
+	 (mov (indirect-address mod-bits r/m-bits nil) (byte-register (bits->byte-reg reg-bits))))
+	(3
+	 (mov (indirect-address mod-bits r/m-bits t) (register (bits->word-reg reg-bits))))))))
 
 ;; Group 4/5 (inc/dec on EAs)
 
-(defmacro inc-indirect (mod-bits r/m-bits is-word)
-  `(inc (indirect-address ,mod-bits ,r/m-bits ,is-word) ,is-word))
+(defun inc-indirect (mod-bits r/m-bits is-word)
+  (inc (indirect-address mod-bits r/m-bits is-word) is-word))
 
-(defmacro dec-indirect (mod-bits r/m-bits is-word)
-  `(dec (indirect-address ,mod-bits ,r/m-bits ,is-word) ,is-word))
+(defun dec-indirect (mod-bits r/m-bits is-word)
+  (dec (indirect-address mod-bits r/m-bits is-word) is-word))
 
-(defmacro parse-group4/5-opcode (opcode)
-  `(parse-group-opcode
-     (0 (parse-group-byte-pair ,opcode inc-indirect mod-bits r/m-bits))
-     (1 (parse-group-byte-pair ,opcode dec-indirect mod-bits r/m-bits))))
+(defun parse-group4/5-opcode (opcode)
+  (parse-group-opcode
+    (0 (parse-group-byte-pair opcode inc-indirect mod-bits r/m-bits))
+    (1 (parse-group-byte-pair opcode dec-indirect mod-bits r/m-bits))))
 
 ;; Group 3 (arithmetic and logical operations)
 
