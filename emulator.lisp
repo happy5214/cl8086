@@ -604,25 +604,28 @@
 ;; Group 3 (arithmetic and logical operations)
 
 (defmacro not-operation (op mod-bits r/m-bits)
-  `(with-in-place-mod ,op ,mod-bits ,r/m-bits
-     (setf ,op (lognot ,op))))
+  `(disasm-instr (list "not" :op ,op)
+     (with-in-place-mod ,op ,mod-bits ,r/m-bits
+       (setf ,op (lognot ,op)))))
 
 (defun not-indirect (mod-bits r/m-bits is-word)
   (not-operation (indirect-address mod-bits r/m-bits is-word) mod-bits r/m-bits))
 
-; (defmacro neg-operation (op mod-bits r/m-bits)
-;   `(with-in-place-mod ,op ,mod-bits ,r/m-bits
-;      (setf ,op (- ,op))))
+(defmacro neg-operation (op mod-bits r/m-bits is-word)
+  `(disasm-instr (list "neg" :op ,op)
+     (with-in-place-mod ,op ,mod-bits ,r/m-bits
+       (let ((src-value ,op))
+	 (setf ,op (- src-value))
+	 (set-zf-on-op (set-sf-on-op (set-pf-on-op (set-of-on-sub (set-cf-on-sub (set-af-on-sub 0 src-value) src-value) src-value ,is-word)) ,is-word))))))
 
-; (defun neg-indirect (mod-bits r/m-bits is-word)
-;   (neg-operation (indirect-address mod-bits r/m-bits is-word) mod-bits r/m-bits))
+(defun neg-indirect (mod-bits r/m-bits is-word)
+  (neg-operation (indirect-address mod-bits r/m-bits is-word) mod-bits r/m-bits is-word))
 
 (defun parse-group3-opcode (opcode)
   (parse-group-opcode
     (0 (parse-group-byte-pair opcode test-indirect-with-immediate mod-bits r/m-bits))
     (2 (parse-group-byte-pair opcode not-indirect mod-bits r/m-bits))
-    ; (3 (parse-group-byte-pair opcode neg-indirect mod-bits r/m-bits))
-    ))
+    (3 (parse-group-byte-pair opcode neg-indirect mod-bits r/m-bits))))
 
 ;; FLAGS processing
 
@@ -823,4 +826,3 @@
   (loop-instructions (load-instructions-into-ram (load-instructions :file file :example example)))
   (when display
     (print-video-ram :stream stream :newline newline)))
-
