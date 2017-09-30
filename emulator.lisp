@@ -330,6 +330,10 @@
   `(let* ((mod-r/m (next-instruction)) (r/m-bits (logand mod-r/m #b00000111)) (mod-bits (ash (logand mod-r/m #b11000000) -6)) (reg-bits (ash (logand mod-r/m #b00111000) -3)))
      ,@body))
 
+(defmacro with-size-by-last-bit (opcode &body body)
+  `(let ((is-word (oddp ,opcode)))
+     ,@body))
+
 (defmacro with-in-place-mod (dest mod-bits r/m-bits &body body)
   `(progn
      ,@body
@@ -522,14 +526,14 @@
      (clear-flag :of)))
 
 (defun test-accumulator-with-immediate (opcode)
-  (let ((is-word (oddp opcode)))
+  (with-size-by-last-bit opcode
     (if is-word
       (test-operation (register :ax) (next-word) t)
       (test-operation (byte-register :al) (next-instruction) nil))))
 
 (defun test-memory-register (opcode)
   (with-mod-r/m-byte
-    (let ((is-word (oddp opcode)))
+    (with-size-by-last-bit opcode
       (if is-word
 	  (test-operation (register (bits->word-reg reg-bits)) (indirect-address mod-bits r/m-bits t) t)
 	  (test-operation (byte-register (bits->byte-reg reg-bits)) (indirect-address mod-bits r/m-bits nil) nil)))))
@@ -542,8 +546,8 @@
 ;; Memory and register mov/xchg
 
 (defun xchg-memory-register (opcode)
-  (let ((is-word (oddp opcode)))
-    (with-mod-r/m-byte
+  (with-mod-r/m-byte
+    (with-size-by-last-bit opcode
       (if is-word
 	  (xchg (register (bits->word-reg reg-bits)) (indirect-address mod-bits r/m-bits is-word))
 	  (xchg (byte-register (bits->byte-reg reg-bits)) (indirect-address mod-bits r/m-bits is-word))))))
@@ -569,6 +573,18 @@
 	 (mov (indirect-address mod-bits r/m-bits nil) (byte-register (bits->byte-reg reg-bits))))
 	(3
 	 (mov (indirect-address mod-bits r/m-bits t) (register (bits->word-reg reg-bits))))))))
+
+(defun mov-offset-to-accumulator (opcode)
+  (with-size-by-last-bit opcode
+    (if is-word
+	(mov (word-in-ram (next-word) *ram*) (register :ax))
+	(mov (byte-in-ram (next-word) *ram*) (byte-register :al)))))
+
+(defun mov-accumulator-to-offset (opcode)
+  (with-size-by-last-bit opcode
+    (if is-word
+	(mov (register :ax) (word-in-ram (next-word) *ram*))
+	(mov (byte-register :al) (byte-in-ram (next-word) *ram*)))))
 
 ;; Group 4/5 (inc/dec on EAs)
 
@@ -743,6 +759,8 @@
     ((in-4-byte-block-p opcode #x88) (parse-mov-opcode opcode))
     ((in-paired-byte-block-p opcode #x86) (xchg-memory-register opcode))
     ((in-paired-byte-block-p opcode #xc6) (parse-group11-opcode opcode))
+    ((in-paired-byte-block-p opcode #xa0) (mov-offset-to-accumulator opcode))
+    ((in-paired-byte-block-p opcode #xa2) (mov-accumulator-to-offset opcode))
     ((in-paired-byte-block-p opcode #xfe) (parse-group4/5-opcode opcode))
     ((in-paired-byte-block-p opcode #xf6) (parse-group3-opcode opcode))
     ((= opcode #x9c) (push-flags))
