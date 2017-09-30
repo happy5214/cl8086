@@ -3,4 +3,3 @@
 (load "emulator.lisp")
 
 (main :file "codegolf" :display t :newline nil)
-
