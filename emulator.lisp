@@ -586,7 +586,7 @@
 	(mov (register :ax) (word-in-ram (next-word) *ram*))
 	(mov (byte-register :al) (byte-in-ram (next-word) *ram*)))))
 
-;; Group 4/5 (inc/dec on EAs)
+;; Groups 1A, 4, and 5 (inc/dec, call/jmp, and push/pop on EAs)
 
 (defun inc-indirect (mod-bits r/m-bits is-word)
   (inc (indirect-address mod-bits r/m-bits is-word) is-word))
@@ -594,10 +594,26 @@
 (defun dec-indirect (mod-bits r/m-bits is-word)
   (dec (indirect-address mod-bits r/m-bits is-word) is-word))
 
-(defun parse-group4/5-opcode (opcode)
+(defun push-indirect (mod-bits r/m-bits)
+  (push-to-stack (indirect-address mod-bits r/m-bits t)))
+
+(defun pop-indirect (mod-bits r/m-bits)
+  (setf (indirect-address mod-bits r/m-bits t) (pop-from-stack)))
+
+(defun parse-group1a-opcode ()
   (parse-group-opcode
-    (0 (parse-group-byte-pair opcode inc-indirect mod-bits r/m-bits))
-    (1 (parse-group-byte-pair opcode dec-indirect mod-bits r/m-bits))))
+    (0 (pop-indirect mod-bits r/m-bits))))
+
+(defun parse-group4-opcode ()
+  (parse-group-opcode
+    (0 (inc-indirect mod-bits r/m-bits nil))
+    (1 (dec-indirect mod-bits r/m-bits nil))))
+
+(defun parse-group5-opcode ()
+  (parse-group-opcode
+    (0 (inc-indirect mod-bits r/m-bits t))
+    (1 (dec-indirect mod-bits r/m-bits t))
+    (6 (push-indirect mod-bits r/m-bits))))
 
 ;; Group 3 (arithmetic and logical operations)
 
@@ -761,7 +777,9 @@
     ((in-paired-byte-block-p opcode #xc6) (parse-group11-opcode opcode))
     ((in-paired-byte-block-p opcode #xa0) (mov-offset-to-accumulator opcode))
     ((in-paired-byte-block-p opcode #xa2) (mov-accumulator-to-offset opcode))
-    ((in-paired-byte-block-p opcode #xfe) (parse-group4/5-opcode opcode))
+    ((= opcode #x8f) (parse-group1a-opcode))
+    ((= opcode #xfe) (parse-group4-opcode))
+    ((= opcode #xff) (parse-group5-opcode))
     ((in-paired-byte-block-p opcode #xf6) (parse-group3-opcode opcode))
     ((= opcode #x9c) (push-flags))
     ((= opcode #x9d) (pop-flags))
