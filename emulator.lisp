@@ -82,6 +82,9 @@
       (negative (+ value limit))
       (t value))))
 
+(defun sign-extend (value)
+  (wrap-carry (twos-complement value nil) t))
+
 ;;; setf-able locations
 
 (defun register (reg)
@@ -504,7 +507,7 @@
   `(case (mod ,opcode 4)
     ((0 2) (,operation (next-instruction-ahead-of-indirect-address ,mod-bits ,r/m-bits) (indirect-address ,mod-bits ,r/m-bits nil) nil mod-bits r/m-bits))
     (1 (,operation (next-word-ahead-of-indirect-address ,mod-bits ,r/m-bits) (indirect-address ,mod-bits ,r/m-bits t) t mod-bits r/m-bits))
-    (3 (,operation (twos-complement (next-instruction-ahead-of-indirect-address ,mod-bits ,r/m-bits) nil) (indirect-address ,mod-bits ,r/m-bits t) t mod-bits r/m-bits))))
+    (3 (,operation (sign-extend (next-instruction-ahead-of-indirect-address ,mod-bits ,r/m-bits)) (indirect-address ,mod-bits ,r/m-bits t) t mod-bits r/m-bits))))
 
 (defun parse-group1-opcode (opcode)
   (parse-group-opcode
