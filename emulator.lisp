@@ -408,22 +408,31 @@
 
 ;; Flow control
 
+(defun jmp-near ()
+  (disasm-instr (list "jmp" :op (twos-complement (next-word) t))
+    (incf *ip* (twos-complement (next-word) t))))
+
 (defun jmp-short ()
-  (disasm-instr (list "jmp" :op1 (twos-complement (next-instruction) nil))
+  (disasm-instr (list "jmp" :op (twos-complement (next-instruction) nil))
     (incf *ip* (twos-complement (next-instruction) nil))))
 
 (defmacro jmp-short-conditionally (opcode condition mnemonic)
   `(let ((disp (next-instruction)))
      (if (evenp ,opcode)
-       (disasm-instr (list (concatenate 'string "j" ,mnemonic) :op1 (twos-complement disp nil))
+       (disasm-instr (list (concatenate 'string "j" ,mnemonic) :op (twos-complement disp nil))
 	 (when ,condition
 	   (incf *ip* (twos-complement disp nil))))
-       (disasm-instr (list (concatenate 'string "jn" ,mnemonic) :op1 (twos-complement disp nil))
+       (disasm-instr (list (concatenate 'string "jn" ,mnemonic) :op (twos-complement disp nil))
 	 (unless ,condition
 	   (incf *ip* (twos-complement disp nil)))))))
 
+(defun jmp-short-on-cx-zero ()
+  (disasm-instr (list "jcxz" :op (twos-complement (next-instruction) nil))
+    (if (zerop (register :cx))
+	(incf *ip* (twos-complement (next-instruction) nil)))))
+
 (defun call-near ()
-  (disasm-instr (list "call" :op1 (twos-complement (next-word) t))
+  (disasm-instr (list "call" :op (twos-complement (next-word) t))
     (push-to-stack (+ *ip* 2))
     (incf *ip* (twos-complement (next-word) t))))
 
@@ -844,6 +853,7 @@
     ((in-8-byte-block-p opcode #xb8) (with-one-byte-opcode-register opcode #'mov-word-to-register))
     ((= opcode #xf8) (clear-carry-flag))
     ((= opcode #xf9) (set-carry-flag))
+    ((= opcode #xe9) (jmp-near))
     ((= opcode #xeb) (jmp-short))
     ((in-paired-byte-block-p opcode #x70) (jmp-short-conditionally opcode (flag-p :of) "o"))
     ((in-paired-byte-block-p opcode #x72) (jmp-short-conditionally opcode (flag-p :cf) "b"))
@@ -853,6 +863,7 @@
     ((in-paired-byte-block-p opcode #x7a) (jmp-short-conditionally opcode (flag-p :pf) "p"))
     ((in-paired-byte-block-p opcode #x7c) (jmp-short-conditionally opcode (not (eq (flag-p :of) (flag-p :sf))) "l"))
     ((in-paired-byte-block-p opcode #x7e) (jmp-short-conditionally opcode (or (flag-p :zf) (not (eq (flag-p :of) (flag-p :sf)))) "le"))
+    ((= opcode #xe3) (jmp-short-on-cx-zero))
     ((= opcode #xe8) (call-near))
     ((= opcode #xc2) (ret-near-resetting-stack))
     ((= opcode #xc3) (ret-near))
