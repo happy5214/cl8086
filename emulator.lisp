@@ -427,9 +427,14 @@
     (push-to-stack (+ *ip* 2))
     (incf *ip* (twos-complement (next-word) t))))
 
-(defun ret-from-call ()
-  (disasm-instr '("ret")
+(defun ret-near ()
+  (disasm-instr '("retn")
     (setf *ip* (pop-from-stack))))
+
+(defun ret-near-resetting-stack ()
+  (disasm-instr (list "retn" :op (next-word))
+    (ret-near)
+    (incf (register :sp) (next-word))))
 
 ;; ALU
 
@@ -838,7 +843,8 @@
     ((in-paired-byte-block-p opcode #x7c) (jmp-short-conditionally opcode (not (eq (flag-p :of) (flag-p :sf))) "l"))
     ((in-paired-byte-block-p opcode #x7e) (jmp-short-conditionally opcode (or (flag-p :zf) (not (eq (flag-p :of) (flag-p :sf)))) "le"))
     ((= opcode #xe8) (call-near))
-    ((= opcode #xc3) (ret-from-call))
+    ((= opcode #xc2) (ret-near-resetting-stack))
+    ((= opcode #xc3) (ret-near))
     ((in-6-byte-block-p opcode #x00) (parse-alu-opcode opcode add-without-carry))
     ((in-6-byte-block-p opcode #x08) (parse-alu-opcode opcode or-operation))
     ((in-6-byte-block-p opcode #x10) (parse-alu-opcode opcode add-with-carry))
