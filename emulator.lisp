@@ -727,15 +727,26 @@
   (disasm-instr '("das")
     (decimal-adjust-after-add-or-sub decf)))
 
+;; Sign-extension operations
+
+(defun convert-byte-to-word ()
+  (disasm-instr '("cbw")
+    (setf (register :ax) (sign-extend (byte-register :al)))))
+
+(defun convert-word-to-double ()
+  (disasm-instr '("cwd")
+    (setf (register :dx) (if (negative-p (register :ax) t) #xff #x00))))
+
 ;; String operations
 
 (defun repeat-prefix (opcode)
-  (let* ((end-on-zf-value (oddp opcode)) (operation-full (parse-string-opcode (next-instruction))) (operation (first operation-full)) (check-zf? (second operation-full)))
-    (if (not operation) (return-from repeat-prefix))
-    (loop
-       do (funcall operation opcode)
-       until (or (= (register :cx) 0) (and check-zf? (eq (flag-p :zf) end-on-zf-value)))
-       do (decf (register :cx)))))
+  (let* ((end-on-zf? (evenp opcode)) (operation-full (parse-string-opcode (next-instruction))) (operation (first operation-full)) (check-zf? (second operation-full)))
+    (disasm-instr (append (funcall operation opcode) (list :prefix (if check-zf? (if end-on-zf? "repnz" "repz") "rep")))
+      (if (not operation) (return-from repeat-prefix))
+      (loop
+	 do (funcall operation opcode)
+	 until (or (= (register :cx) 0) (and check-zf? (eq (flag-p :zf) end-on-zf?)))
+	 do (decf (register :cx))))))
 
 (defmacro string-operation (opcode operation)
   `(with-size-by-last-bit ,opcode
@@ -874,6 +885,8 @@
     ((= opcode #x2f) (decimal-adjust-after-subtraction))
     ((= opcode #x37) (ascii-adjust-after-addition))
     ((= opcode #x3f) (ascii-adjust-after-subtraction))
+    ((= opcode #x98) (convert-byte-to-word))
+    ((= opcode #x99) (convert-word-to-double))
     ((in-paired-byte-block-p opcode #xf2) (repeat-prefix opcode))
     ((in-paired-byte-block-p opcode #xa4) (mov-string opcode))
     ((in-paired-byte-block-p opcode #xaa) (store-string opcode))
