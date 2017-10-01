@@ -13,7 +13,7 @@
 
 (defparameter *ram* (make-array (* 64 1024) :initial-element 0 :element-type '(unsigned-byte 8)) "Primary segment")
 (defparameter *stack* (make-array (* 64 1024) :initial-element 0 :element-type '(unsigned-byte 8)) "Stack segment")
-(defparameter *flags* '(:af 0 :cf 0 :of 0 :pf 0 :sf 0 :zf 0) "Flags")
+(defparameter *flags* '(:af 0 :cf 0 :df 0 :of 0 :pf 0 :sf 0 :zf 0) "Flags")
 (defparameter *registers* '(:ax 0 :bx 0 :cx 0 :dx 0 :bp 0 :sp #x100 :si 0 :di 0) "Registers")
 (defparameter *ip* 0 "Instruction pointer")
 (defparameter *has-carried* nil "Whether the last wraparound changed the value")
@@ -722,6 +722,41 @@
   (disasm-instr '("das")
     (decimal-adjust-after-add-or-sub decf)))
 
+;; String operations
+
+(defun repeat-prefix (opcode)
+  (let* ((end-on-zf-value (oddp opcode)) (operation-full (parse-string-opcode (next-instruction))) (operation (first operation-full)) (check-zf? (second operation-full)))
+    (if (not operation) (return-from repeat-prefix))
+    (loop
+       do (funcall operation opcode)
+       until (or (= (register :cx) 0) (and check-zf? (eq (flag-p :zf) end-on-zf-value)))
+       do (decf (register :cx)))))
+
+(defmacro string-operation (opcode operation)
+  `(with-size-by-last-bit ,opcode
+     (let ((diff (if is-word 2 1)))
+       (if is-word
+	   (,operation word-in-ram)
+	   (,operation byte-in-ram))
+       (when (flag-p :df)
+	 (decf (register :si) diff)
+	 (decf (register :di) diff))
+       (unless (flag-p :df)
+	 (incf (register :si) diff)
+	 (incf (register :di) diff)))))
+
+(defmacro mov-string-operation (accessor)
+  `(disasm-instr '("movs")
+     (mov (,accessor (register :si) *ram*) (,accessor (register :di) *ram*))))
+
+(defun mov-string (opcode)
+  (string-operation opcode mov-string-operation))
+
+(defun parse-string-opcode (opcode)
+  (cond
+    ((in-paired-byte-block-p opcode #xa4) (list #'mov-string nil))
+    (t '(nil nil))))
+
 ;;; Opcode parsing
 
 (defmacro in-x-byte-block-p (size)
@@ -792,7 +827,9 @@
     ((= opcode #x27) (decimal-adjust-after-addition))
     ((= opcode #x2f) (decimal-adjust-after-subtraction))
     ((= opcode #x37) (ascii-adjust-after-addition))
-    ((= opcode #x3f) (ascii-adjust-after-subtraction))))
+    ((= opcode #x3f) (ascii-adjust-after-subtraction))
+    ((in-paired-byte-block-p opcode #xf2) (repeat-prefix opcode))
+    ((in-paired-byte-block-p opcode #xa4) (mov-string opcode))))
 
 ;;; Main functions
 
