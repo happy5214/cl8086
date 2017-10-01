@@ -735,9 +735,7 @@
 (defmacro string-operation (opcode operation)
   `(with-size-by-last-bit ,opcode
      (let ((diff (if is-word 2 1)))
-       (if is-word
-	   (,operation word-in-ram)
-	   (,operation byte-in-ram))
+       (,operation is-word)
        (when (flag-p :df)
 	 (decf (register :si) diff)
 	 (decf (register :di) diff))
@@ -745,16 +743,58 @@
 	 (incf (register :si) diff)
 	 (incf (register :di) diff)))))
 
-(defmacro mov-string-operation (accessor)
+(defmacro mov-string-operation (is-word)
   `(disasm-instr '("movs")
-     (mov (,accessor (register :si) *ram*) (,accessor (register :di) *ram*))))
+     (if ,is-word
+	 (mov (word-in-ram (register :si) *ram*) (word-in-ram (register :di) *ram*))
+	 (mov (byte-in-ram (register :si) *ram*) (byte-in-ram (register :di) *ram*)))))
 
 (defun mov-string (opcode)
   (string-operation opcode mov-string-operation))
 
+(defmacro load-string-operation (is-word)
+  `(disasm-instr '("lods")
+     (if ,is-word
+	 (setf (register :ax) (word-in-ram (register :si) *ram*))
+	 (setf (byte-register :al) (byte-in-ram (register :si) *ram*)))))
+
+(defun load-string (opcode)
+  (string-operation opcode load-string-operation))
+
+(defmacro store-string-operation (is-word)
+  `(disasm-instr '("stos")
+     (if ,is-word
+	 (setf (word-in-ram (register :di) *ram*) (register :ax))
+	 (setf (byte-in-ram (register :di) *ram*) (byte-register :al)))))
+
+(defun store-string (opcode)
+  (string-operation opcode store-string-operation))
+
+(defmacro compare-string-operation (is-word)
+  `(disasm-instr '("cmps")
+     (if ,is-word
+	 (cmp-operation (word-in-ram (register :si) *ram*) (word-in-ram (register :di) *ram*) t)
+	 (cmp-operation (byte-in-ram (register :si) *ram*) (byte-in-ram (register :di) *ram*) nil))))
+
+(defun compare-string (opcode)
+  (string-operation opcode compare-string-operation))
+
+(defmacro scan-string-operation (is-word)
+  `(disasm-instr '("scas")
+     (if ,is-word
+	 (cmp-operation (register :ax) (word-in-ram (register :di) *ram*) t)
+	 (cmp-operation (byte-register :al) (byte-in-ram (register :di) *ram*) nil))))
+
+(defun scan-string (opcode)
+  (string-operation opcode scan-string-operation))
+
 (defun parse-string-opcode (opcode)
   (cond
     ((in-paired-byte-block-p opcode #xa4) (list #'mov-string nil))
+    ((in-paired-byte-block-p opcode #xaa) (list #'store-string nil))
+    ((in-paired-byte-block-p opcode #xac) (list #'load-string nil))
+    ((in-paired-byte-block-p opcode #xa6) (list #'compare-string t))
+    ((in-paired-byte-block-p opcode #xae) (list #'scan-string t))
     (t '(nil nil))))
 
 ;;; Opcode parsing
@@ -807,9 +847,9 @@
     ((in-6-byte-block-p opcode #x28) (parse-alu-opcode opcode sub-without-borrow))
     ((in-6-byte-block-p opcode #x30) (parse-alu-opcode opcode xor-operation))
     ((in-6-byte-block-p opcode #x38) (parse-alu-opcode opcode cmp-operation))
+    ((in-4-byte-block-p opcode #x80) (parse-group1-opcode opcode))
     ((in-paired-byte-block-p opcode #xa8) (test-accumulator-with-immediate opcode))
     ((in-paired-byte-block-p opcode #x84) (test-memory-register opcode))
-    ((in-4-byte-block-p opcode #x80) (parse-group1-opcode opcode))
     ((in-4-byte-block-p opcode #x88) (parse-mov-opcode opcode))
     ((in-paired-byte-block-p opcode #x86) (xchg-memory-register opcode))
     ((in-paired-byte-block-p opcode #xc6) (parse-group11-opcode opcode))
@@ -829,7 +869,11 @@
     ((= opcode #x37) (ascii-adjust-after-addition))
     ((= opcode #x3f) (ascii-adjust-after-subtraction))
     ((in-paired-byte-block-p opcode #xf2) (repeat-prefix opcode))
-    ((in-paired-byte-block-p opcode #xa4) (mov-string opcode))))
+    ((in-paired-byte-block-p opcode #xa4) (mov-string opcode))
+    ((in-paired-byte-block-p opcode #xaa) (store-string opcode))
+    ((in-paired-byte-block-p opcode #xac) (load-string opcode))
+    ((in-paired-byte-block-p opcode #xa6) (compare-string opcode))
+    ((in-paired-byte-block-p opcode #xae) (scan-string opcode))))
 
 ;;; Main functions
 
