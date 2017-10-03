@@ -371,7 +371,7 @@
   `(disasm-instr (list "dec" :op ,op)
      (set-af-on-sub (1+ (set-of-on-sub (set-pf-on-op (set-sf-on-op (set-zf-on-op (decf ,op)) ,is-word)) 1 ,is-word)) 1)))
 
-;; One-byte opcodes on registers
+;; Flag operations
 
 (defun clear-carry-flag ()
   (disasm-instr '("clc")
@@ -380,6 +380,16 @@
 (defun set-carry-flag ()
   (disasm-instr '("stc")
     (setf (flag-p :cf) t)))
+
+(defun clear-direction-flag ()
+  (disasm-instr '("cld")
+    (setf (flag-p :df) nil)))
+
+(defun set-direction-flag ()
+  (disasm-instr '("std")
+    (setf (flag-p :df) t)))
+
+;; One-byte opcodes on registers
 
 (defun push-register (reg)
   (disasm-instr (list "push" :src reg)
@@ -853,6 +863,8 @@
     ((in-8-byte-block-p opcode #xb8) (with-one-byte-opcode-register opcode #'mov-word-to-register))
     ((= opcode #xf8) (clear-carry-flag))
     ((= opcode #xf9) (set-carry-flag))
+    ((= opcode #xfc) (clear-direction-flag))
+    ((= opcode #xfd) (set-direction-flag))
     ((= opcode #xe9) (jmp-near))
     ((= opcode #xeb) (jmp-short))
     ((in-paired-byte-block-p opcode #x70) (jmp-short-conditionally opcode (flag-p :of) "o"))
