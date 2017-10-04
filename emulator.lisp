@@ -304,10 +304,10 @@
      ,result))
 
 (defun set-of-on-add (sum value2 is-word)
-  (set-of-on-op sum +))
+  (set-of-on-op sum -))
 
 (defun set-of-on-sub (diff value2 is-word)
-  (set-of-on-op diff -))
+  (set-of-on-op diff +))
 
 (defun set-pf-on-op (value)
   (setf (flag-p :pf) (evenp (logcount (logand #xff value))))
