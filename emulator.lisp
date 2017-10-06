@@ -359,17 +359,21 @@
   `(disasm-instr (list "mov" :src ,src :dest ,dest)
      (setf ,dest ,src)))
 
-(defmacro xchg (op1 op2)
+(defmacro xchg (op1 op2 &optional mod-bits r/m-bits)
   `(disasm-instr (list "xchg" :op1 ,op1 :op2 ,op2)
-     (rotatef ,op1 ,op2)))
+     (with-in-place-mod ,op1 ,mod-bits ,r/m-bits
+       (with-in-place-mod ,op2 ,mod-bits ,r/m-bits
+	 (rotatef ,op1 ,op2)))))
 
-(defmacro inc (op is-word)
+(defmacro inc (op is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "inc" :op ,op)
-     (set-af-on-add (set-of-on-add (set-pf-on-op (set-sf-on-op (set-zf-on-op (incf ,op)) ,is-word)) 1 ,is-word) 1)))
+     (with-in-place-mod ,op ,mod-bits ,r/m-bits
+       (set-af-on-add (set-of-on-add (set-pf-on-op (set-sf-on-op (set-zf-on-op (incf ,op)) ,is-word)) 1 ,is-word) 1))))
 
-(defmacro dec (op is-word)
+(defmacro dec (op is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "dec" :op ,op)
-     (set-af-on-sub (1+ (set-of-on-sub (set-pf-on-op (set-sf-on-op (set-zf-on-op (decf ,op)) ,is-word)) 1 ,is-word)) 1)))
+     (with-in-place-mod ,op ,mod-bits ,r/m-bits
+       (set-af-on-sub (1+ (set-of-on-sub (set-pf-on-op (set-sf-on-op (set-zf-on-op (decf ,op)) ,is-word)) 1 ,is-word)) 1))))
 
 ;; Flag operations
 
@@ -576,8 +580,8 @@
   (with-mod-r/m-byte
     (with-size-by-last-bit opcode
       (if is-word
-	  (xchg (register (bits->word-reg reg-bits)) (indirect-address mod-bits r/m-bits is-word))
-	  (xchg (byte-register (bits->byte-reg reg-bits)) (indirect-address mod-bits r/m-bits is-word))))))
+	  (xchg (register (bits->word-reg reg-bits)) (indirect-address mod-bits r/m-bits is-word) mod-bits r/m-bits)
+	  (xchg (byte-register (bits->byte-reg reg-bits)) (indirect-address mod-bits r/m-bits is-word) mod-bits r/m-bits)))))
 
 (defun mov-immediate-to-memory (mod-bits r/m-bits is-word)
   (if is-word
