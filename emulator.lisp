@@ -318,7 +318,7 @@
   value)
 
 (defun set-zf-on-op (value)
-  (setf (flag-p :zf) (= value 0))
+  (setf (flag-p :zf) (zerop value))
   value)
 
 ;;; Operations
