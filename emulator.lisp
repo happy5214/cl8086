@@ -365,6 +365,14 @@
        (with-in-place-mod ,op2 ,mod-bits ,r/m-bits
 	 (rotatef ,op1 ,op2)))))
 
+(defmacro push-operation (src)
+  `(disasm-instr (list "push" :src ,src)
+     (push-to-stack ,src)))
+
+(defmacro pop-operation (dest)
+  `(disasm-instr (list "pop" :dest ,dest)
+     (setf ,dest (pop-from-stack))))
+
 (defmacro inc (op is-word &optional mod-bits r/m-bits)
   `(disasm-instr (list "inc" :op ,op)
      (with-in-place-mod ,op ,mod-bits ,r/m-bits
@@ -396,12 +404,10 @@
 ;; One-byte opcodes on registers
 
 (defun push-register (reg)
-  (disasm-instr (list "push" :src reg)
-    (push-to-stack (register reg))))
+  (push-operation (register reg)))
 
 (defun pop-to-register (reg)
-  (disasm-instr (list "pop" :dest reg)
-    (setf (register reg) (pop-from-stack))))
+  (pop-operation (register reg)))
 
 (defun inc-register (reg)
   (inc (register reg) t))
@@ -626,10 +632,10 @@
   (dec (indirect-address mod-bits r/m-bits is-word) is-word))
 
 (defun push-indirect (mod-bits r/m-bits)
-  (push-to-stack (indirect-address mod-bits r/m-bits t)))
+  (push-operation (indirect-address mod-bits r/m-bits t)))
 
 (defun pop-indirect (mod-bits r/m-bits)
-  (setf (indirect-address mod-bits r/m-bits t) (pop-from-stack)))
+  (pop-operation (indirect-address mod-bits r/m-bits t)))
 
 (defun parse-group1a-opcode ()
   (parse-group-opcode
