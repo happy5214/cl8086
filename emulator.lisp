@@ -637,19 +637,34 @@
 (defun pop-indirect (mod-bits r/m-bits)
   (pop-operation (indirect-address mod-bits r/m-bits t)))
 
+(defun call-near-indirect (mod-bits r/m-bits)
+  (let ((target (indirect-address mod-bits r/m-bits t)))
+    (disasm-instr (list "call" :op target)
+      (push-to-stack *ip*)
+      (setf *ip* target))))
+
+(defun jmp-near-indirect (mod-bits r/m-bits)
+  (disasm-instr (list "jmp" :op (indirect-address mod-bits r/m-bits t))
+    (setf *ip* (indirect-address mod-bits r/m-bits t))))
+
 (defun parse-group1a-opcode ()
+  "Group 1A (0x8F)"
   (parse-group-opcode
     (0 (pop-indirect mod-bits r/m-bits))))
 
 (defun parse-group4-opcode ()
+  "Group 4 (0xFE)"
   (parse-group-opcode
     (0 (inc-indirect mod-bits r/m-bits nil))
     (1 (dec-indirect mod-bits r/m-bits nil))))
 
 (defun parse-group5-opcode ()
+  "Group 5 (0xFF)"
   (parse-group-opcode
     (0 (inc-indirect mod-bits r/m-bits t))
     (1 (dec-indirect mod-bits r/m-bits t))
+    (2 (call-near-indirect mod-bits r/m-bits))
+    (4 (jmp-near-indirect mod-bits r/m-bits))
     (6 (push-indirect mod-bits r/m-bits))))
 
 ;; Group 3 (arithmetic and logical operations)
