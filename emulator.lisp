@@ -699,19 +699,30 @@
   `(disasm-instr (list "shl" :src ,count :dest (indirect-address ,mod-bits ,r/m-bits ,is-word))
      (with-in-place-mod (indirect-address ,mod-bits ,r/m-bits ,is-word) ,mod-bits ,r/m-bits
        (unless (zerop ,count)
-	 (setf (indirect-address ,mod-bits ,r/m-bits ,is-word) (ash (indirect-address ,mod-bits ,r/m-bits ,is-word) ,count))))))
+	 (let ((src-value (indirect-address ,mod-bits ,r/m-bits ,is-word)))
+	   (set-zf-on-op (set-sf-on-op (set-pf-on-op (setf (indirect-address ,mod-bits ,r/m-bits ,is-word) (ash src-value ,count))) ,is-word))
+	   (setf (flag-p :cf) (logbitp (- (if ,is-word 16 8) ,count) src-value))
+	   (if (= ,count 1)
+	       (setf (flag-p :of) (not (and (flag-p :cf) (logbitp (- (if ,is-word 16 8) ,count 1) src-value))))))))))
 
 (defmacro shift-logical-right (mod-bits r/m-bits count is-word)
   `(disasm-instr (list "shr" :src ,count :dest (indirect-address ,mod-bits ,r/m-bits ,is-word))
      (with-in-place-mod (indirect-address ,mod-bits ,r/m-bits ,is-word) ,mod-bits ,r/m-bits
        (unless (zerop ,count)
-	 (setf (indirect-address ,mod-bits ,r/m-bits ,is-word) (ash (indirect-address ,mod-bits ,r/m-bits ,is-word) (- ,count)))))))
+	 (let ((src-value (indirect-address ,mod-bits ,r/m-bits ,is-word)))
+	   (set-zf-on-op (set-sf-on-op (set-pf-on-op (setf (indirect-address ,mod-bits ,r/m-bits ,is-word) (ash src-value (- ,count)))) ,is-word))
+	   (setf (flag-p :cf) (logbitp (1- ,count) src-value))
+	   (if (= ,count 1)
+	       (setf (flag-p :of) (logbitp (1- (if ,is-word 16 8)) src-value))))))))
 
 (defmacro shift-arithmetic-right (mod-bits r/m-bits count is-word)
   `(disasm-instr (list "sar" :src ,count :dest (indirect-address ,mod-bits ,r/m-bits ,is-word))
      (with-in-place-mod (indirect-address ,mod-bits ,r/m-bits ,is-word) ,mod-bits ,r/m-bits
        (unless (zerop ,count)
-	 (setf (indirect-address ,mod-bits ,r/m-bits ,is-word) (ash (twos-complement (indirect-address ,mod-bits ,r/m-bits ,is-word) ,is-word) (- ,count)))))))
+	 (let ((src-value (indirect-address ,mod-bits ,r/m-bits ,is-word)))
+	   (set-zf-on-op (set-sf-on-op (set-pf-on-op (setf (indirect-address ,mod-bits ,r/m-bits ,is-word) (ash (twos-complement src-value ,is-word) (- ,count)))) ,is-word))
+	   (setf (flag-p :cf) (logbitp (1- ,count) src-value))
+	   (if (= ,count 1) (clear-flag :cf)))))))
 
 (defmacro parse-group2-opcode (opcode count)
   `(with-mod-r/m-byte
