@@ -693,6 +693,34 @@
     (2 (parse-group-byte-pair opcode not-indirect mod-bits r/m-bits))
     (3 (parse-group-byte-pair opcode neg-indirect mod-bits r/m-bits))))
 
+;; Group 2 (shifts and rotates)
+
+(defmacro shift-left (mod-bits r/m-bits count is-word)
+  `(disasm-instr (list "shl" :src ,count :dest (indirect-address ,mod-bits ,r/m-bits ,is-word))
+     (with-in-place-mod (indirect-address ,mod-bits ,r/m-bits ,is-word) ,mod-bits ,r/m-bits
+       (unless (zerop ,count)
+	 (setf (indirect-address ,mod-bits ,r/m-bits ,is-word) (ash (indirect-address ,mod-bits ,r/m-bits ,is-word) ,count))))))
+
+(defmacro shift-logical-right (mod-bits r/m-bits count is-word)
+  `(disasm-instr (list "shr" :src ,count :dest (indirect-address ,mod-bits ,r/m-bits ,is-word))
+     (with-in-place-mod (indirect-address ,mod-bits ,r/m-bits ,is-word) ,mod-bits ,r/m-bits
+       (unless (zerop ,count)
+	 (setf (indirect-address ,mod-bits ,r/m-bits ,is-word) (ash (indirect-address ,mod-bits ,r/m-bits ,is-word) (- ,count)))))))
+
+(defmacro shift-arithmetic-right (mod-bits r/m-bits count is-word)
+  `(disasm-instr (list "sar" :src ,count :dest (indirect-address ,mod-bits ,r/m-bits ,is-word))
+     (with-in-place-mod (indirect-address ,mod-bits ,r/m-bits ,is-word) ,mod-bits ,r/m-bits
+       (unless (zerop ,count)
+	 (setf (indirect-address ,mod-bits ,r/m-bits ,is-word) (ash (twos-complement (indirect-address ,mod-bits ,r/m-bits ,is-word) ,is-word) (- ,count)))))))
+
+(defmacro parse-group2-opcode (opcode count)
+  `(with-mod-r/m-byte
+     (with-size-by-last-bit ,opcode
+       (case reg-bits
+	 ((4 6) (shift-left mod-bits r/m-bits ,count is-word))
+	 (5 (shift-logical-right mod-bits r/m-bits ,count is-word))
+	 (7 (shift-arithmetic-right mod-bits r/m-bits ,count is-word))))))
+
 ;; FLAGS processing
 
 (defun push-flags ()
@@ -924,6 +952,8 @@
     ((= opcode #xfe) (parse-group4-opcode))
     ((= opcode #xff) (parse-group5-opcode))
     ((in-paired-byte-block-p opcode #xf6) (parse-group3-opcode opcode))
+    ((in-paired-byte-block-p opcode #xd0) (parse-group2-opcode opcode 1))
+    ((in-paired-byte-block-p opcode #xd2) (parse-group2-opcode opcode (byte-register :cl)))
     ((= opcode #x9c) (push-flags))
     ((= opcode #x9d) (pop-flags))
     ((= opcode #x9e) (store-flags-to-ah))
