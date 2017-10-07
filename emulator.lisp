@@ -626,10 +626,10 @@
 ;; Groups 1A, 4, and 5 (inc/dec, call/jmp, and push/pop on EAs)
 
 (defun inc-indirect (mod-bits r/m-bits is-word)
-  (inc (indirect-address mod-bits r/m-bits is-word) is-word))
+  (inc (indirect-address mod-bits r/m-bits is-word) is-word mod-bits r/m-bits))
 
 (defun dec-indirect (mod-bits r/m-bits is-word)
-  (dec (indirect-address mod-bits r/m-bits is-word) is-word))
+  (dec (indirect-address mod-bits r/m-bits is-word) is-word mod-bits r/m-bits))
 
 (defun push-indirect (mod-bits r/m-bits)
   (push-operation (indirect-address mod-bits r/m-bits t)))
