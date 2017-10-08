@@ -722,6 +722,28 @@
 	    for bit-carried? = (logbitp 0 tmp-value)
 	    finally (setf (indirect-address ,mod-bits ,r/m-bits ,is-word) tmp-value) (setf (flag-p :cf) (logbitp (if ,is-word 15 7) tmp-value)) (if (= ,count 1) (setf (flag-p :of) (xor (flag-p :cf) (logbitp (if ,is-word 14 6) tmp-value)))))))))
 
+(defmacro rotate-left-with-cf (mod-bits r/m-bits count is-word)
+  `(disasm-instr (list "rcl" :src ,count :dest (indirect-address ,mod-bits ,r/m-bits ,is-word))
+     (with-in-place-mod (indirect-address ,mod-bits ,r/m-bits ,is-word) ,mod-bits ,r/m-bits
+       (unless (zerop ,count)
+	 (loop
+	    repeat (1+ ,count)
+	    for tmp-value = (indirect-address ,mod-bits ,r/m-bits ,is-word) then (+ (ash tmp-value 1) (if tmp-cf 1 0))
+	    for tmp-cf = (flag-p :cf) then bit-carried?
+	    for bit-carried? = (logbitp (if ,is-word 15 7) tmp-value)
+	    finally (setf (indirect-address ,mod-bits ,r/m-bits ,is-word) tmp-value) (setf (flag-p :cf) tmp-cf) (if (= ,count 1) (setf (flag-p :of) (xor tmp-cf bit-carried?))))))))
+
+(defmacro rotate-right-with-cf (mod-bits r/m-bits count is-word)
+  `(disasm-instr (list "rcr" :src ,count :dest (indirect-address ,mod-bits ,r/m-bits ,is-word))
+     (with-in-place-mod (indirect-address ,mod-bits ,r/m-bits ,is-word) ,mod-bits ,r/m-bits
+       (unless (zerop ,count)
+	 (loop
+	    repeat (1+ ,count)
+	    for tmp-value = (indirect-address ,mod-bits ,r/m-bits ,is-word) then (+ (ash tmp-value -1) (ash (if tmp-cf 1 0) 15))
+	    for tmp-cf = (flag-p :cf) then bit-carried?
+	    for bit-carried? = (logbitp 0 tmp-value)
+	    finally (setf (indirect-address ,mod-bits ,r/m-bits ,is-word) tmp-value) (setf (flag-p :cf) tmp-cf) (if (= ,count 1) (setf (flag-p :of) (xor tmp-cf (logbitp (if ,is-word 14 6) tmp-value)))))))))
+
 (defmacro shift-left (mod-bits r/m-bits count is-word)
   `(disasm-instr (list "shl" :src ,count :dest (indirect-address ,mod-bits ,r/m-bits ,is-word))
      (with-in-place-mod (indirect-address ,mod-bits ,r/m-bits ,is-word) ,mod-bits ,r/m-bits
@@ -757,6 +779,8 @@
        (case reg-bits
 	 (0 (rotate-left mod-bits r/m-bits ,count is-word))
 	 (1 (rotate-right mod-bits r/m-bits ,count is-word))
+	 (2 (rotate-left-with-cf mod-bits r/m-bits ,count is-word))
+	 (3 (rotate-right-with-cf mod-bits r/m-bits ,count is-word))
 	 ((4 6) (shift-left mod-bits r/m-bits ,count is-word))
 	 (5 (shift-logical-right mod-bits r/m-bits ,count is-word))
 	 (7 (shift-arithmetic-right mod-bits r/m-bits ,count is-word))))))
