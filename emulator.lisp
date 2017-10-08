@@ -1,5 +1,15 @@
 ;;;; Intel 8086 emulator
 
+;;; Convenience functions
+
+;;; Taken from http://www.lispforum.com/viewtopic.php?f=2&t=1205#p6269; not necessarily under same license as my code.
+
+(defun bit-vector->integer (bit-vector)
+  "Create a positive integer from a bit-vector."
+  (reduce #'(lambda (first-bit second-bit)
+              (+ (* first-bit 2) second-bit))
+          bit-vector))
+
 ;;; Program settings
 
 (defparameter *disasm* nil "Whether to disassemble")
@@ -129,12 +139,6 @@
 
 (defun clear-flag (name)
   (setf (flag-p name) nil))
-
-(defun bit-vector->integer (bit-vector)
-  "Create a positive integer from a bit-vector."
-  (reduce #'(lambda (first-bit second-bit)
-              (+ (* first-bit 2) second-bit))
-          bit-vector))
 
 (defun flags-register (&optional (is-word t))
   (let ((flags (vector 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0)))
