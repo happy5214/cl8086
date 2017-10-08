@@ -2,6 +2,9 @@
 
 ;;; Convenience functions
 
+(defmacro xor (op1 op2)
+  `(not (eq ,op1 ,op2)))
+
 ;;; Taken from http://www.lispforum.com/viewtopic.php?f=2&t=1205#p6269; not necessarily under same license as my code.
 
 (defun bit-vector->integer (bit-vector)
@@ -699,6 +702,26 @@
 
 ;; Group 2 (shifts and rotates)
 
+(defmacro rotate-left (mod-bits r/m-bits count is-word)
+  `(disasm-instr (list "rol" :src ,count :dest (indirect-address ,mod-bits ,r/m-bits ,is-word))
+     (with-in-place-mod (indirect-address ,mod-bits ,r/m-bits ,is-word) ,mod-bits ,r/m-bits
+       (unless (zerop ,count)
+	 (loop
+	    repeat (1+ ,count)
+	    for tmp-value = (indirect-address ,mod-bits ,r/m-bits ,is-word) then (+ (ash tmp-value 1) (if bit-carried? 1 0))
+	    for bit-carried? = (logbitp (if ,is-word 15 7) tmp-value)
+	    finally (setf (indirect-address ,mod-bits ,r/m-bits ,is-word) tmp-value) (setf (flag-p :cf) (logbitp 0 tmp-value)) (if (= ,count 1) (setf (flag-p :of) (xor (flag-p :cf) bit-carried?))))))))
+
+(defmacro rotate-right (mod-bits r/m-bits count is-word)
+  `(disasm-instr (list "ror" :src ,count :dest (indirect-address ,mod-bits ,r/m-bits ,is-word))
+     (with-in-place-mod (indirect-address ,mod-bits ,r/m-bits ,is-word) ,mod-bits ,r/m-bits
+       (unless (zerop ,count)
+	 (loop
+	    repeat (1+ ,count)
+	    for tmp-value = (indirect-address ,mod-bits ,r/m-bits ,is-word) then (+ (ash tmp-value -1) (ash (if bit-carried? 1 0) 15))
+	    for bit-carried? = (logbitp 0 tmp-value)
+	    finally (setf (indirect-address ,mod-bits ,r/m-bits ,is-word) tmp-value) (setf (flag-p :cf) (logbitp (if ,is-word 15 7) tmp-value)) (if (= ,count 1) (setf (flag-p :of) (xor (flag-p :cf) (logbitp (if ,is-word 14 6) tmp-value)))))))))
+
 (defmacro shift-left (mod-bits r/m-bits count is-word)
   `(disasm-instr (list "shl" :src ,count :dest (indirect-address ,mod-bits ,r/m-bits ,is-word))
      (with-in-place-mod (indirect-address ,mod-bits ,r/m-bits ,is-word) ,mod-bits ,r/m-bits
@@ -707,7 +730,7 @@
 	   (set-zf-on-op (set-sf-on-op (set-pf-on-op (setf (indirect-address ,mod-bits ,r/m-bits ,is-word) (ash src-value ,count))) ,is-word))
 	   (setf (flag-p :cf) (logbitp (- (if ,is-word 16 8) ,count) src-value))
 	   (if (= ,count 1)
-	       (setf (flag-p :of) (not (and (flag-p :cf) (logbitp (- (if ,is-word 16 8) ,count 1) src-value))))))))))
+	       (setf (flag-p :of) (xor (flag-p :cf) (logbitp (- (if ,is-word 16 8) ,count 1) src-value)))))))))
 
 (defmacro shift-logical-right (mod-bits r/m-bits count is-word)
   `(disasm-instr (list "shr" :src ,count :dest (indirect-address ,mod-bits ,r/m-bits ,is-word))
@@ -726,12 +749,14 @@
 	 (let ((src-value (indirect-address ,mod-bits ,r/m-bits ,is-word)))
 	   (set-zf-on-op (set-sf-on-op (set-pf-on-op (setf (indirect-address ,mod-bits ,r/m-bits ,is-word) (ash (twos-complement src-value ,is-word) (- ,count)))) ,is-word))
 	   (setf (flag-p :cf) (logbitp (1- ,count) src-value))
-	   (if (= ,count 1) (clear-flag :cf)))))))
+	   (if (= ,count 1) (clear-flag :of)))))))
 
 (defmacro parse-group2-opcode (opcode count)
   `(with-mod-r/m-byte
      (with-size-by-last-bit ,opcode
        (case reg-bits
+	 (0 (rotate-left mod-bits r/m-bits ,count is-word))
+	 (1 (rotate-right mod-bits r/m-bits ,count is-word))
 	 ((4 6) (shift-left mod-bits r/m-bits ,count is-word))
 	 (5 (shift-logical-right mod-bits r/m-bits ,count is-word))
 	 (7 (shift-arithmetic-right mod-bits r/m-bits ,count is-word))))))
