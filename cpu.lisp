@@ -1,5 +1,18 @@
 ;;;; Intel 8086 emulator (CPU)
 
+;;; Convenience functions
+
+(defmacro xor (op1 op2)
+  `(not (eq ,op1 ,op2)))
+
+;; Taken from http://www.lispforum.com/viewtopic.php?f=2&t=1205#p6269; not necessarily under same license as my code.
+
+(defun bit-vector->integer (bit-vector)
+  "Create a positive integer from a bit-vector."
+  (reduce #'(lambda (first-bit second-bit)
+              (+ (* first-bit 2) second-bit))
+          bit-vector))
+
 ;;; Program settings
 
 (defparameter *disasm* nil "Whether to disassemble")
@@ -127,12 +140,6 @@
 
 (defun clear-flag (name)
   (setf (flag-p name) nil))
-
-(defun bit-vector->integer (bit-vector)
-  "Create a positive integer from a bit-vector."
-  (reduce #'(lambda (first-bit second-bit)
-              (+ (* first-bit 2) second-bit))
-          bit-vector))
 
 (defun flags-register (&optional (is-word t))
   (let ((flags (vector 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0)))
@@ -691,6 +698,91 @@
     (2 (parse-group-byte-pair opcode not-indirect mod-bits r/m-bits))
     (3 (parse-group-byte-pair opcode neg-indirect mod-bits r/m-bits))))
 
+;; Group 2 (shifts and rotates)
+
+(defmacro rotate-left (mod-bits r/m-bits count is-word)
+  `(disasm-instr (list "rol" :src ,count :dest (indirect-address ,mod-bits ,r/m-bits ,is-word))
+     (with-in-place-mod (indirect-address ,mod-bits ,r/m-bits ,is-word) ,mod-bits ,r/m-bits
+       (unless (zerop ,count)
+	 (loop
+	    repeat (1+ ,count)
+	    for tmp-value = (indirect-address ,mod-bits ,r/m-bits ,is-word) then (+ (ash tmp-value 1) (if bit-carried? 1 0))
+	    for bit-carried? = (logbitp (if ,is-word 15 7) tmp-value)
+	    finally (setf (indirect-address ,mod-bits ,r/m-bits ,is-word) tmp-value) (setf (flag-p :cf) (logbitp 0 tmp-value)) (if (= ,count 1) (setf (flag-p :of) (xor (flag-p :cf) bit-carried?))))))))
+
+(defmacro rotate-right (mod-bits r/m-bits count is-word)
+  `(disasm-instr (list "ror" :src ,count :dest (indirect-address ,mod-bits ,r/m-bits ,is-word))
+     (with-in-place-mod (indirect-address ,mod-bits ,r/m-bits ,is-word) ,mod-bits ,r/m-bits
+       (unless (zerop ,count)
+	 (loop
+	    repeat (1+ ,count)
+	    for tmp-value = (indirect-address ,mod-bits ,r/m-bits ,is-word) then (+ (ash tmp-value -1) (ash (if bit-carried? 1 0) 15))
+	    for bit-carried? = (logbitp 0 tmp-value)
+	    finally (setf (indirect-address ,mod-bits ,r/m-bits ,is-word) tmp-value) (setf (flag-p :cf) (logbitp (if ,is-word 15 7) tmp-value)) (if (= ,count 1) (setf (flag-p :of) (xor (flag-p :cf) (logbitp (if ,is-word 14 6) tmp-value)))))))))
+
+(defmacro rotate-left-with-cf (mod-bits r/m-bits count is-word)
+  `(disasm-instr (list "rcl" :src ,count :dest (indirect-address ,mod-bits ,r/m-bits ,is-word))
+     (with-in-place-mod (indirect-address ,mod-bits ,r/m-bits ,is-word) ,mod-bits ,r/m-bits
+       (unless (zerop ,count)
+	 (loop
+	    repeat (1+ ,count)
+	    for tmp-value = (indirect-address ,mod-bits ,r/m-bits ,is-word) then (+ (ash tmp-value 1) (if tmp-cf 1 0))
+	    for tmp-cf = (flag-p :cf) then bit-carried?
+	    for bit-carried? = (logbitp (if ,is-word 15 7) tmp-value)
+	    finally (setf (indirect-address ,mod-bits ,r/m-bits ,is-word) tmp-value) (setf (flag-p :cf) tmp-cf) (if (= ,count 1) (setf (flag-p :of) (xor tmp-cf bit-carried?))))))))
+
+(defmacro rotate-right-with-cf (mod-bits r/m-bits count is-word)
+  `(disasm-instr (list "rcr" :src ,count :dest (indirect-address ,mod-bits ,r/m-bits ,is-word))
+     (with-in-place-mod (indirect-address ,mod-bits ,r/m-bits ,is-word) ,mod-bits ,r/m-bits
+       (unless (zerop ,count)
+	 (loop
+	    repeat (1+ ,count)
+	    for tmp-value = (indirect-address ,mod-bits ,r/m-bits ,is-word) then (+ (ash tmp-value -1) (ash (if tmp-cf 1 0) 15))
+	    for tmp-cf = (flag-p :cf) then bit-carried?
+	    for bit-carried? = (logbitp 0 tmp-value)
+	    finally (setf (indirect-address ,mod-bits ,r/m-bits ,is-word) tmp-value) (setf (flag-p :cf) tmp-cf) (if (= ,count 1) (setf (flag-p :of) (xor tmp-cf (logbitp (if ,is-word 14 6) tmp-value)))))))))
+
+(defmacro shift-left (mod-bits r/m-bits count is-word)
+  `(disasm-instr (list "shl" :src ,count :dest (indirect-address ,mod-bits ,r/m-bits ,is-word))
+     (with-in-place-mod (indirect-address ,mod-bits ,r/m-bits ,is-word) ,mod-bits ,r/m-bits
+       (unless (zerop ,count)
+	 (let ((src-value (indirect-address ,mod-bits ,r/m-bits ,is-word)))
+	   (set-zf-on-op (set-sf-on-op (set-pf-on-op (setf (indirect-address ,mod-bits ,r/m-bits ,is-word) (ash src-value ,count))) ,is-word))
+	   (setf (flag-p :cf) (logbitp (- (if ,is-word 16 8) ,count) src-value))
+	   (if (= ,count 1)
+	       (setf (flag-p :of) (xor (flag-p :cf) (logbitp (- (if ,is-word 16 8) ,count 1) src-value)))))))))
+
+(defmacro shift-logical-right (mod-bits r/m-bits count is-word)
+  `(disasm-instr (list "shr" :src ,count :dest (indirect-address ,mod-bits ,r/m-bits ,is-word))
+     (with-in-place-mod (indirect-address ,mod-bits ,r/m-bits ,is-word) ,mod-bits ,r/m-bits
+       (unless (zerop ,count)
+	 (let ((src-value (indirect-address ,mod-bits ,r/m-bits ,is-word)))
+	   (set-zf-on-op (set-sf-on-op (set-pf-on-op (setf (indirect-address ,mod-bits ,r/m-bits ,is-word) (ash src-value (- ,count)))) ,is-word))
+	   (setf (flag-p :cf) (logbitp (1- ,count) src-value))
+	   (if (= ,count 1)
+	       (setf (flag-p :of) (logbitp (1- (if ,is-word 16 8)) src-value))))))))
+
+(defmacro shift-arithmetic-right (mod-bits r/m-bits count is-word)
+  `(disasm-instr (list "sar" :src ,count :dest (indirect-address ,mod-bits ,r/m-bits ,is-word))
+     (with-in-place-mod (indirect-address ,mod-bits ,r/m-bits ,is-word) ,mod-bits ,r/m-bits
+       (unless (zerop ,count)
+	 (let ((src-value (indirect-address ,mod-bits ,r/m-bits ,is-word)))
+	   (set-zf-on-op (set-sf-on-op (set-pf-on-op (setf (indirect-address ,mod-bits ,r/m-bits ,is-word) (ash (twos-complement src-value ,is-word) (- ,count)))) ,is-word))
+	   (setf (flag-p :cf) (logbitp (1- ,count) src-value))
+	   (if (= ,count 1) (clear-flag :of)))))))
+
+(defmacro parse-group2-opcode (opcode count)
+  `(with-mod-r/m-byte
+     (with-size-by-last-bit ,opcode
+       (case reg-bits
+	 (0 (rotate-left mod-bits r/m-bits ,count is-word))
+	 (1 (rotate-right mod-bits r/m-bits ,count is-word))
+	 (2 (rotate-left-with-cf mod-bits r/m-bits ,count is-word))
+	 (3 (rotate-right-with-cf mod-bits r/m-bits ,count is-word))
+	 ((4 6) (shift-left mod-bits r/m-bits ,count is-word))
+	 (5 (shift-logical-right mod-bits r/m-bits ,count is-word))
+	 (7 (shift-arithmetic-right mod-bits r/m-bits ,count is-word))))))
+
 ;; FLAGS processing
 
 (defun push-flags ()
@@ -922,6 +1014,8 @@
     ((= opcode #xfe) (parse-group4-opcode))
     ((= opcode #xff) (parse-group5-opcode))
     ((in-paired-byte-block-p opcode #xf6) (parse-group3-opcode opcode))
+    ((in-paired-byte-block-p opcode #xd0) (parse-group2-opcode opcode 1))
+    ((in-paired-byte-block-p opcode #xd2) (parse-group2-opcode opcode (byte-register :cl)))
     ((= opcode #x9c) (push-flags))
     ((= opcode #x9d) (pop-flags))
     ((= opcode #x9e) (store-flags-to-ah))
