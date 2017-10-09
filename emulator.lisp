@@ -32,11 +32,12 @@
     (if newline (format stream "~%"))))
 
 (defun disasm (&key (file nil) (example #()))
-  (setf *disasm* t)
-  (loop-instructions (load-instructions-into-ram (load-instructions :file file :example example))))
+  (let ((*disasm* t))
+    (disasm-instructions (load-instructions-into-ram (load-instructions :file file :example example)))))
 
 (defun main (&key (file nil) (example #()) (display nil) (stream t) (newline nil))
-  (setf *disasm* nil)
-  (loop-instructions (load-instructions-into-ram (load-instructions :file file :example example)))
-  (when display
-    (print-video-ram :stream stream :newline newline)))
+  (let ((*disasm* nil))
+    (load-instructions-into-ram (load-instructions :file file :example example))
+    (execute-instructions)
+    (when display
+      (print-video-ram :stream stream :newline newline))))

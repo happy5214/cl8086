@@ -1052,8 +1052,3 @@
      until (>= *ip* instr-length)
      do (advance-ip)
      finally (return disasm)))
-
-(defun loop-instructions (instr-length)
-  (if *disasm*
-      (disasm-instructions instr-length)
-      (execute-instructions)))
