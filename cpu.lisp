@@ -149,7 +149,8 @@
     (setf (elt flags (- 15 6)) (flag :zf))
     (setf (elt flags (- 15 7)) (flag :sf))
     (when is-word
-	(setf (elt flags (- 15 11)) (flag :of)))
+      (setf (elt flags (- 15 10)) (flag :df))
+      (setf (elt flags (- 15 11)) (flag :of)))
     (bit-vector->integer flags)))
 
 (defun set-flags-register (value &optional (is-word t))
@@ -159,7 +160,8 @@
   (setf (flag-p :zf) (logbitp 6 value))
   (setf (flag-p :sf) (logbitp 7 value))
   (when is-word
-      (setf (flag-p :of) (logbitp 11 value)))
+    (setf (flag-p :df) (logbitp 10 value))
+    (setf (flag-p :of) (logbitp 11 value)))
   value)
 
 (defsetf flags-register set-flags-register)
