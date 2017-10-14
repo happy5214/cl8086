@@ -916,6 +916,17 @@
   (disasm-instr '("das")
     (decimal-adjust-after-add-or-sub decf)))
 
+(defun ascii-adjust-after-multiplication ()
+  (disasm-instr (list "aam" :op (next-instruction))
+    (let ((base (next-instruction)))
+      (setf (values (byte-register :ah) (byte-register :al)) (truncate (byte-register :al) base))
+      (set-zf-on-op (set-sf-on-op (set-pf-on-op (byte-register :al)) nil)))))
+
+(defun ascii-adjust-before-division ()
+  (disasm-instr (list "aad" :op (next-instruction))
+    (let ((base (next-instruction)))
+      (set-zf-on-op (set-sf-on-op (set-pf-on-op (setf (byte-register :al) (+ (byte-register :al) (* (byte-register :ah) base)))) nil)))))
+
 ;; Sign-extension operations
 
 (defun convert-byte-to-word ()
@@ -1080,6 +1091,8 @@
     ((= opcode #x2f) (decimal-adjust-after-subtraction))
     ((= opcode #x37) (ascii-adjust-after-addition))
     ((= opcode #x3f) (ascii-adjust-after-subtraction))
+    ((= opcode #xd4) (ascii-adjust-after-multiplication))
+    ((= opcode #xd5) (ascii-adjust-before-division))
     ((= opcode #x98) (convert-byte-to-word))
     ((= opcode #x99) (convert-word-to-double))
     ((in-paired-byte-block-p opcode #xf2) (repeat-prefix opcode))
