@@ -721,13 +721,37 @@
       (imul-operation (indirect-address mod-bits r/m-bits t) (register :ax) (register :dx) t)
       (imul-operation (indirect-address mod-bits r/m-bits nil) (byte-register :al) (byte-register :ah) nil)))
 
+(defmacro div-operation (src dest-low dest-high is-wprd)
+  `(disasm-instr (list "div" :src ,src)
+     (multiple-value-bind (quotient remainder) (truncate (+ ,dest-low (ash ,dest-high (if ,is-word 16 8))) ,src)
+       (setf ,dest-low quotient)
+       (setf ,dest-high remainder))))
+
+(defun div-indirect (mod-bits r/m-bits is-word)
+  (if is-word
+      (div-operation (indirect-address mod-bits r/m-bits t) (register :ax) (register :dx) t)
+      (div-operation (indirect-address mod-bits r/m-bits nil) (byte-register :al) (byte-register :ah) nil)))
+
+(defmacro idiv-operation (src dest-low dest-high is-wprd)
+  `(disasm-instr (list "idiv" :src ,src)
+     (multiple-value-bind (quotient remainder) (truncate (+ (twos-complement ,dest-low ,is-word) (ash (twos-complement ,dest-high ,is-word) (if ,is-word 16 8))) (twos-complement ,src ,is-word))
+       (setf ,dest-low quotient)
+       (setf ,dest-high remainder))))
+
+(defun idiv-indirect (mod-bits r/m-bits is-word)
+  (if is-word
+      (idiv-operation (indirect-address mod-bits r/m-bits t) (register :ax) (register :dx) t)
+      (idiv-operation (indirect-address mod-bits r/m-bits nil) (byte-register :al) (byte-register :ah) nil)))
+
 (defun parse-group3-opcode (opcode)
   (parse-group-opcode
     (0 (parse-group-byte-pair opcode test-indirect-with-immediate mod-bits r/m-bits))
     (2 (parse-group-byte-pair opcode not-indirect mod-bits r/m-bits))
     (3 (parse-group-byte-pair opcode neg-indirect mod-bits r/m-bits))
     (4 (parse-group-byte-pair opcode mul-indirect mod-bits r/m-bits))
-    (5 (parse-group-byte-pair opcode imul-indirect mod-bits r/m-bits))))
+    (5 (parse-group-byte-pair opcode imul-indirect mod-bits r/m-bits))
+    (6 (parse-group-byte-pair opcode div-indirect mod-bits r/m-bits))
+    (7 (parse-group-byte-pair opcode idiv-indirect mod-bits r/m-bits))))
 
 ;; Group 2 (shifts and rotates)
 
