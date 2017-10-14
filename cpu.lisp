@@ -694,11 +694,40 @@
 (defun neg-indirect (mod-bits r/m-bits is-word)
   (neg-operation (indirect-address mod-bits r/m-bits is-word) mod-bits r/m-bits is-word))
 
+(defmacro mul-operation (src dest dest-overflow is-word)
+  `(disasm-instr (list "mul" :src ,src)
+     (let* ((result (* ,src ,dest)) (overflow (ash result (if ,is-word -16 -8))) (overflow-zero? (zerop overflow)))
+       (setf ,dest result)
+       (setf ,dest-overflow overflow)
+       (setf (flag-p :cf) overflow-zero?)
+       (setf (flap-p :of) overflow-zero?))))
+
+(defun mul-indirect (mod-bits r/m-bits is-word)
+  (if is-word
+      (mul-operation (indirect-address mod-bits r/m-bits t) (register :ax) (register :dx) t)
+      (mul-operation (indirect-address mod-bits r/m-bits nil) (byte-register :al) (byte-register :ah) nil)))
+
+(defmacro imul-operation (src dest dest-overflow is-word)
+  `(disasm-instr (list "imul" :src ,src)
+     (let* ((result (* (twos-complement ,src ,is-word) (twos-complement ,dest ,is-word))) (overflow (ash result (if ,is-word -16 -8))))
+       (setf ,dest result)
+       (setf ,dest-overflow overflow)
+       (let ((overflowed? (/= (twos-complement ,dest ,is-word) result)))
+	 (setf (flag-p :cf) overflowed?)
+	 (setf (flag-p :of) overflowed?)))))
+
+(defun imul-indirect (mod-bits r/m-bits is-word)
+  (if is-word
+      (imul-operation (indirect-address mod-bits r/m-bits t) (register :ax) (register :dx) t)
+      (imul-operation (indirect-address mod-bits r/m-bits nil) (byte-register :al) (byte-register :ah) nil)))
+
 (defun parse-group3-opcode (opcode)
   (parse-group-opcode
     (0 (parse-group-byte-pair opcode test-indirect-with-immediate mod-bits r/m-bits))
     (2 (parse-group-byte-pair opcode not-indirect mod-bits r/m-bits))
-    (3 (parse-group-byte-pair opcode neg-indirect mod-bits r/m-bits))))
+    (3 (parse-group-byte-pair opcode neg-indirect mod-bits r/m-bits))
+    (4 (parse-group-byte-pair opcode mul-indirect mod-bits r/m-bits))
+    (5 (parse-group-byte-pair opcode imul-indirect mod-bits r/m-bits))))
 
 ;; Group 2 (shifts and rotates)
 
