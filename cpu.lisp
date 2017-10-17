@@ -472,6 +472,13 @@
     (ret-near)
     (incf (register :sp) (next-word))))
 
+(defmacro loop-instruction (condition mnemonic)
+  `(let ((disp (twos-complement (next-instruction) nil)))
+     (disasm-instr (list (concatenate 'string "loop" ,mnemonic) :op disp)
+       (decf (register :cx))
+       (when (and (not (zerop (register :cx))) ,condition)
+	 (incf *ip* disp)))))
+
 ;; ALU
 
 (defmacro parse-alu-opcode (opcode operation)
@@ -700,7 +707,7 @@
        (setf ,dest result)
        (setf ,dest-overflow overflow)
        (setf (flag-p :cf) overflow-zero?)
-       (setf (flap-p :of) overflow-zero?))))
+       (setf (flag-p :of) overflow-zero?))))
 
 (defun mul-indirect (mod-bits r/m-bits is-word)
   (if is-word
@@ -721,7 +728,7 @@
       (imul-operation (indirect-address mod-bits r/m-bits t) (register :ax) (register :dx) t)
       (imul-operation (indirect-address mod-bits r/m-bits nil) (byte-register :al) (byte-register :ah) nil)))
 
-(defmacro div-operation (src dest-low dest-high is-wprd)
+(defmacro div-operation (src dest-low dest-high is-word)
   `(disasm-instr (list "div" :src ,src)
      (multiple-value-bind (quotient remainder) (truncate (+ ,dest-low (ash ,dest-high (if ,is-word 16 8))) ,src)
        (setf ,dest-low quotient)
@@ -732,7 +739,7 @@
       (div-operation (indirect-address mod-bits r/m-bits t) (register :ax) (register :dx) t)
       (div-operation (indirect-address mod-bits r/m-bits nil) (byte-register :al) (byte-register :ah) nil)))
 
-(defmacro idiv-operation (src dest-low dest-high is-wprd)
+(defmacro idiv-operation (src dest-low dest-high is-word)
   `(disasm-instr (list "idiv" :src ,src)
      (multiple-value-bind (quotient remainder) (truncate (+ (twos-complement ,dest-low ,is-word) (ash (twos-complement ,dest-high ,is-word) (if ,is-word 16 8))) (twos-complement ,src ,is-word))
        (setf ,dest-low quotient)
@@ -1060,6 +1067,9 @@
     ((= opcode #xe8) (call-near))
     ((= opcode #xc2) (ret-near-resetting-stack))
     ((= opcode #xc3) (ret-near))
+    ((= opcode #xe0) (loop-instruction (not (flag-p :zf)) "ne"))
+    ((= opcode #xe1) (loop-instruction (flag-p :zf) "e"))
+    ((= opcode #xe2) (loop-instruction t ""))
     ((in-6-byte-block-p opcode #x00) (parse-alu-opcode opcode add-without-carry))
     ((in-6-byte-block-p opcode #x08) (parse-alu-opcode opcode or-operation))
     ((in-6-byte-block-p opcode #x10) (parse-alu-opcode opcode add-with-carry))
