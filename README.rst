@@ -5,6 +5,10 @@ This is a basic Intel 8086 emulator, which has enough functionality to execute
 the "codegolf" program
 (http://codegolf.stackexchange.com/questions/4732/emulate-an-intel-8086-cpu).
 
+Please use the "codegolf" branch to run the executable. master is not guaranteed
+to remain compatible with that program's non-standard assumptions, and it will
+likely break at some point.
+
 Though I wrote the code from scratch, I did use Julien Aubert's Python emulator
 implementation (https://github.com/julienaubert/py8086) as a rough guide and
 a source of inspiration, as well as a template for this documentation.
@@ -21,29 +25,24 @@ aforementioned program "codegolf". I have since started to further extend it.
 Currently supported
 ~~~~~~~~~~~~~~~~~~~
 
-- inc and dec with registers
-- push and pop with registers
-- xchg with registers and memory (including nop)
-- mov with register and either a word or byte immediate
-- mov using memory operands
-- hlt
-- stc and clc
-- all 8 general purpose byte and word registers
+- All 8086 instructions not involving stuff listed as possible future additions
+- All 8 general purpose byte and word registers
 - IP register
-- Flags: AF, CF, OF, PF, SF, ZF
+- Flags: AF, CF, DF, OF, PF, SF, ZF (also FLAGS register)
 - Two fixed 64 kB segments of memory (general RAM and the stack)
 - Loading instructions via a vector
-- Basic arithmetic and logic (add, adc, sub, sbb, cmp, and, or, xor)
-- Unconditional flow control (near call, near ret, short jmp)
-- Conditional jumps using the five implemented flags (jb/jnb, jz/jnz, jbe/jnbe, js/jns, jl/jnl, jle/jnle, jp/jnp, jo/jno)
-- BCD addition and subtraction (both packed and unpacked)
-- test
+- Binary-coded decimal (both packed and unpacked)
+- String functions
+- rep- and loop-type prefixes
+
+Will be supported later
+~~~~~~~~~~~~~~~~~~~~~~~
+- Segment registers that can be manipulated
+- Full 1 MB RAM vector
+- Interrupts
+- Opcode prefixes for segment overrides and (possibly) lock
 
 May be supported later
 ~~~~~~~~~~~~~~~~~~~~~~
-- Segments that be manipulated
-- Opcode prefixes
-- Interrupts or port IO
-- String functions
-- Two-byte opcodes
+- Port-mapped IO
 - Floating-point operations
