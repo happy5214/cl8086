@@ -400,6 +400,10 @@
   (disasm-instr '("stc")
     (setf (flag-p :cf) t)))
 
+(defun complement-carry-flag ()
+  (disasm-instr '("cmc")
+    (setf (flag-p :cf) (not (flag-p :cf)))))
+
 (defun clear-direction-flag ()
   (disasm-instr '("cld")
     (setf (flag-p :df) nil)))
