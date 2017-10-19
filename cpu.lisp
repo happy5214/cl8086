@@ -1020,6 +1020,12 @@
     ((in-paired-byte-block-p opcode #xae) (list #'scan-string t))
     (t '(nil nil))))
 
+;; Translation table lookup
+
+(defun xlat ()
+  (disasm-instr '("xlat")
+    (setf (byte-register :al) (byte-in-ram (+ (register :bx) (byte-register :al))))))
+
 ;;; Opcode parsing
 
 (defmacro in-x-byte-block-p (size)
