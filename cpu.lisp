@@ -1061,6 +1061,7 @@
     ((in-8-byte-block-p opcode #xb8) (with-one-byte-opcode-register opcode #'mov-word-to-register))
     ((= opcode #xf8) (clear-carry-flag))
     ((= opcode #xf9) (set-carry-flag))
+    ((= opcode #xf5) (complement-carry-flag))
     ((= opcode #xfc) (clear-direction-flag))
     ((= opcode #xfd) (set-direction-flag))
     ((= opcode #xe9) (jmp-near))
@@ -1120,7 +1121,8 @@
     ((in-paired-byte-block-p opcode #xaa) (store-string opcode))
     ((in-paired-byte-block-p opcode #xac) (load-string opcode))
     ((in-paired-byte-block-p opcode #xa6) (compare-string opcode))
-    ((in-paired-byte-block-p opcode #xae) (scan-string opcode))))
+    ((in-paired-byte-block-p opcode #xae) (scan-string opcode))
+    ((= opcode #xd7) (xlat))))
 
 ;;; Main functions
 
