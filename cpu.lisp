@@ -26,6 +26,7 @@
 
 (defparameter *flags* '(:af 0 :cf 0 :df 0 :of 0 :pf 0 :sf 0 :zf 0) "Flags")
 (defparameter *registers* '(:ax 0 :bx 0 :cx 0 :dx 0 :bp 0 :sp #x100 :si 0 :di 0) "Registers")
+(defparameter *segments* '(:cs 0 :ds 0 :es 0 :ss 0) "Segments")
 (defparameter *ip* 0 "Instruction pointer")
 (defparameter *has-carried* nil "Whether the last wraparound changed the value")
 (defparameter *advance* 0 "Bytes to advance IP by after an operation")
@@ -122,6 +123,13 @@
   value)
 
 (defsetf byte-register set-byte-reg)
+
+(defun segment (seg)
+  (disasm-instr seg
+    (getf *segments* reg)))
+
+(defsetf segment (seg) (value)
+  `(setf (getf *segments* ,seg) (logand ,value #xffff)))
 
 (defun flag (name)
   (getf *flags* name))
