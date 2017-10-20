@@ -1,12 +1,14 @@
 ;;;; Intel 8086 emulator
 
-;;; State variables
+;;; Convenience functions
 
-(defparameter *ram* (make-array (* 64 1024) :initial-element 0 :element-type '(unsigned-byte 8)) "Primary segment")
-(defparameter *stack* (make-array (* 64 1024) :initial-element 0 :element-type '(unsigned-byte 8)) "Stack segment")
+(defun reverse-little-endian (low high)
+  "Reverse a little-endian number."
+  (+ low (ash high 8)))
 
 ;;; Includes
 
+(load "ram.lisp")
 (load "cpu.lisp")
 
 ;;; Main functions

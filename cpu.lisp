@@ -72,10 +72,6 @@
 
 ;;; Convenience functions
 
-(defun reverse-little-endian (low high)
-  "Reverse a little-endian number."
-  (+ low (ash high 8)))
-
 (defun negative-p (value is-word)
   (let ((sign-and (if is-word #x8000 #x80)))
     (= (logand sign-and value) sign-and)))
@@ -173,25 +169,6 @@
   value)
 
 (defsetf flags-register set-flags-register)
-
-(defun byte-in-ram (location segment)
-  "Read a byte from a RAM segment."
-  (elt segment location))
-
-(defsetf byte-in-ram (location segment) (value)
-  "Write a byte to a RAM segment."
-  `(setf (elt ,segment ,location) (logand ,value #xff)))
-
-(defun word-in-ram (location segment)
-  "Read a word from a RAM segment."
-  (reverse-little-endian (elt segment location) (elt segment (1+ location))))
-
-(defsetf word-in-ram (location segment) (value)
-  "Write a word to a RAM segment."
-  `(progn
-     (setf (elt ,segment ,location) (logand ,value #x00ff))
-     (setf (elt ,segment (1+ ,location)) (ash (logand ,value #xff00) -8))
-     ,value))
 
 (defun indirect-address (mod-bits r/m-bits is-word)
   "Read from an indirect address."
