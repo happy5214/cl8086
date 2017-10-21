@@ -451,6 +451,12 @@
 (defun mov-word-to-register (reg)
   (mov (next-word) (register reg)))
 
+;; Segment prefixes
+
+(defun segment-prefix (seg)
+  (let ((*current-segment* seg))
+    (parse-opcode (next-instruction))))
+
 ;; Flow control
 
 (defun jmp-near ()
@@ -1084,6 +1090,10 @@
     ((= opcode #xf5) (complement-carry-flag))
     ((= opcode #xfc) (clear-direction-flag))
     ((= opcode #xfd) (set-direction-flag))
+    ((= opcode #x26) (segment-prefix :es))
+    ((= opcode #x2e) (segment-prefix :cs))
+    ((= opcode #x36) (segment-prefix :ss))
+    ((= opcode #x3e) (segment-prefix :ds))
     ((= opcode #xe9) (jmp-near))
     ((= opcode #xeb) (jmp-short))
     ((in-paired-byte-block-p opcode #x70) (jmp-short-conditionally opcode (flag-p :of) "o"))
