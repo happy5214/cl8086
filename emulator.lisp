@@ -27,7 +27,7 @@
 (defun print-video-ram (&key (width 80) (height 25) (stream t) (newline nil))
   (dotimes (line height)
     (dotimes (column width)
-      (let ((char-at-cell (byte-in-ram (+ #x8000 (* line 80) column) *ram*)))
+      (let ((char-at-cell (byte-in-ram (+ #x8000 (* line 80) column))))
 	(if (zerop char-at-cell)
 	    (format stream "~a" #\Space)
 	    (format stream "~a" (code-char char-at-cell)))))

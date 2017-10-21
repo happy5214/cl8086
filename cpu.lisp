@@ -31,8 +31,8 @@
 (defparameter *has-carried* nil "Whether the last wraparound changed the value")
 (defparameter *advance* 0 "Bytes to advance IP by after an operation")
 
-(defparameter *stack-segment* :ss)
-(defparameter *default-segment* :ds)
+(defparameter *default-segment* nil)
+(defparameter *current-segment* nil)
 
 ;;; Constants
 
@@ -48,30 +48,33 @@
 (defun bits->byte-reg (bits)
   (elt +bits-to-byte-register+ bits))
 
+(defmacro default-seg-to (default &optional (current *current-segment*))
+  `(if (null ,current) ,default ,current))
+
 (defun address-for-r/m (mod-bits r/m-bits)
   (disasm-instr
       (if (and (= mod-bits #b00) (= r/m-bits #b110))
 	  (list :disp (peek-at-word))
 	  (case r/m-bits
-	    (#b000 (list :base :bx :index :si))
-	    (#b001 (list :base :bx :index :di))
-	    (#b010 (list :base :bp :index :si))
-	    (#b011 (list :base :bp :index :di))
-	    (#b100 (list :index :si))
-	    (#b101 (list :index :di))
-	    (#b110 (list :base :bp))
-	    (#b111 (list :base :bx))))
+	    (#b000 (list :segment (default-seg-to :ds) :base :bx :index :si))
+	    (#b001 (list :segment (default-seg-to :ds) :base :bx :index :di))
+	    (#b010 (list :segment (default-seg-to :ss) :base :bp :index :si))
+	    (#b011 (list :segment (default-seg-to :ss) :base :bp :index :di))
+	    (#b100 (list :segment (default-seg-to :ds) :index :si))
+	    (#b101 (list :segment (default-seg-to :ds) :index :di))
+	    (#b110 (list :segment (default-seg-to :ss) :base :bp))
+	    (#b111 (list :segment (default-seg-to :ds) :base :bx))))
     (if (and (= mod-bits #b00) (= r/m-bits #b110))
-	(peek-at-word)
+	(values (peek-at-word) (default-seg-to :ds))
 	(case r/m-bits
-	  (#b000 (+ (register :bx) (register :si)))
-	  (#b001 (+ (register :bx) (register :di)))
-	  (#b010 (+ (register :bp) (register :si)))
-	  (#b011 (+ (register :bp) (register :di)))
-	  (#b100 (register :si))
-	  (#b101 (register :di))
-	  (#b110 (register :bp))
-	  (#b111 (register :bx))))))
+	  (#b000 (values (+ (register :bx) (register :si)) (default-seg-to :ds)))
+	  (#b001 (values (+ (register :bx) (register :di)) (default-seg-to :ds)))
+	  (#b010 (values (+ (register :bp) (register :si)) (default-seg-to :ss)))
+	  (#b011 (values (+ (register :bp) (register :di)) (default-seg-to :ss)))
+	  (#b100 (values (register :si) (default-seg-to :ds)))
+	  (#b101 (values (register :di) (default-seg-to :ds)))
+	  (#b110 (values (register :bp) (default-seg-to :ss)))
+	  (#b111 (values (register :bx) (default-seg-to :ds)))))))
 
 ;;; Convenience functions
 
@@ -96,8 +99,8 @@
 (defun sign-extend (value)
   (wrap-carry (twos-complement value nil) t))
 
-(defun segment-calc (seg reg)
-  (logand (+ (ash seg 4) reg) #xfffff))
+(defun segment-calc (seg offset)
+  (logand (+ (ash seg 4) offset) #xfffff))
 
 ;;; setf-able locations
 
@@ -130,7 +133,7 @@
 
 (defun segment (seg)
   (disasm-instr seg
-    (getf *segments* reg)))
+    (getf *segments* seg)))
 
 (defsetf segment (seg) (value)
   `(setf (getf *segments* ,seg) (logand ,value #xffff)))
@@ -182,17 +185,21 @@
 
 ;; RAM
 
-(defun segmented-byte-in-ram (reg seg)
-  (byte-in-ram (segment-calc (segment seg) (register reg))))
+(defun segmented-byte-in-ram (seg offset)
+  (let ((real-seg (default-seg-to *default-segment* seg)))
+    (byte-in-ram (segment-calc (segment real-seg) offset))))
 
-(defsetf segmented-byte-in-ram (reg seg) (value)
-  `(setf (byte-in-ram (segment-calc (segment ,seg) (register ,reg))) ,value))
+(defsetf segmented-byte-in-ram (seg offset) (value)
+  `(let ((real-seg (default-seg-to *default-segment* ,seg)))
+     (setf (byte-in-ram (segment-calc (segment real-seg) ,offset)) ,value)))
 
-(defun segmented-word-in-ram (reg seg)
-  (word-in-ram (segment-calc (segment seg) (register reg))))
+(defun segmented-word-in-ram (seg offset)
+  (let ((real-seg (default-seg-to *default-segment* seg)))
+    (word-in-ram (segment-calc (segment real-seg) offset))))
 
-(defsetf segmented-word-in-ram (reg seg) (value)
-  `(setf (word-in-ram (segment-calc (segment ,seg) (register ,reg))) ,value))
+(defsetf segmented-word-in-ram (seg offset) (value)
+  `(let ((real-seg (default-seg-to *default-segment* ,seg)))
+     (setf (word-in-ram (segment-calc (segment real-seg) ,offset)) ,value)))
 
 (defun indirect-address (mod-bits r/m-bits is-word)
   "Read from an indirect address."
@@ -206,20 +213,20 @@
 		      (#b01 (next-instruction))
 		      (#b10 (next-word)))))
 	    base-index))
-    (let ((address-base (address-for-r/m mod-bits r/m-bits)))
+    (multiple-value-bind (address-base seg) (address-for-r/m mod-bits r/m-bits)
       (case mod-bits
-	(#b00 (if is-word (segmented-word-in-ram address-base *default-segment*) (segmented-byte-in-ram address-base *default-segment*)))
-	(#b01 (if is-word (segmented-word-in-ram (+ address-base (peek-at-instruction)) *default-segment*) (segmented-byte-in-ram (+ address-base (peek-at-instruction)) *default-segment*)))
-	(#b10 (if is-word (segmented-word-in-ram (+ address-base (peek-at-word)) *default-segment*) (segmented-byte-in-ram (+ address-base (peek-at-word)) *default-segment*)))
+	(#b00 (if is-word (segmented-word-in-ram seg address-base) (segmented-byte-in-ram seg address-base)))
+	(#b01 (if is-word (segmented-word-in-ram seg (+ address-base (peek-at-instruction))) (segmented-byte-in-ram seg (+ address-base (peek-at-instruction)))))
+	(#b10 (if is-word (segmented-word-in-ram seg (+ address-base (peek-at-word))) (segmented-byte-in-ram seg (+ address-base (peek-at-word)))))
 	(#b11 (if is-word (register (bits->word-reg r/m-bits)) (byte-register (bits->byte-reg r/m-bits))))))))
 
 (defsetf indirect-address (mod-bits r/m-bits is-word) (value)
   "Write to an indirect address."
-  `(let ((address-base (address-for-r/m ,mod-bits ,r/m-bits)))
+  `(multiple-value-bind (address-base seg) (address-for-r/m ,mod-bits ,r/m-bits)
     (case ,mod-bits
-      (#b00 (if ,is-word (setf (segmented-word-in-ram address-base *default-segment*) ,value) (setf (segmented-byte-in-ram address-base *default-segment*) ,value)))
-      (#b01 (if ,is-word (setf (segmented-word-in-ram (+ address-base (peek-at-instruction)) *default-segment*) ,value) (setf (segmented-byte-in-ram (+ address-base (peek-at-instruction)) *default-segment*) ,value)))
-      (#b10 (if ,is-word (setf (segmented-word-in-ram (+ address-base (peek-at-word)) *default-segment*) ,value) (setf (segmented-byte-in-ram (+ address-base (peek-at-word)) *default-segment*) ,value)))
+      (#b00 (if ,is-word (setf (segmented-word-in-ram seg address-base) ,value) (setf (segmented-byte-in-ram seg address-base) ,value)))
+      (#b01 (if ,is-word (setf (segmented-word-in-ram seg (+ address-base (peek-at-instruction))) ,value) (setf (segmented-byte-in-ram seg (+ address-base (peek-at-instruction))) ,value)))
+      (#b10 (if ,is-word (setf (segmented-word-in-ram seg (+ address-base (peek-at-word))) ,value) (setf (segmented-byte-in-ram seg (+ address-base (peek-at-word))) ,value)))
       (#b11 (if ,is-word (setf (register (bits->word-reg ,r/m-bits)) ,value) (setf (byte-register (bits->byte-reg ,r/m-bits)) ,value))))
     ,value))
 
@@ -274,26 +281,20 @@
     (incf *advance* 2)
     (next-word)))
 
-;;; Memory access
-
-(defun read-word-from-ram (loc &optional (segment *default-segment*))
-  (segmented-word-in-ram loc segment))
-
-(defun write-word-to-ram (loc word &optional (segment *default-segment*))
-  (setf (segmented-word-in-ram loc segment) word))
+;;; Stack
 
 (defmacro push-to-stack (value)
   `(progn
      (decf (register :sp) 2)
-     (write-word-to-ram (register :sp) ,value *stack-segment*)))
+     (setf (segmented-word-in-ram :ss (register :sp)) ,value)))
 
 ; (defun push-to-stack (value)
 ;   (decf (register :sp) 2)
-;   (write-word-to-ram (register :sp) value *stack-segment*))
+;   (setf (segmented-word-to-ram :ss (register :sp)) value))
 
 (defun pop-from-stack ()
   (incf (register :sp) 2)
-  (read-word-from-ram (- (register :sp) 2) *stack-segment*))
+  (segmented-word-in-ram :ss (- (register :sp) 2)))
 
 ;;; Flag effects
 
@@ -358,6 +359,10 @@
      ,@body
      (when (equal (car ',dest) 'indirect-address)
        (decf *advance* (advance-ip-ahead-of-indirect-address ,mod-bits ,r/m-bits)))))
+
+(defmacro with-ds-default (&body body)
+  `(let ((*default-segment* :ds))
+     ,@body))
 
 ;; Group handling
 
@@ -640,15 +645,17 @@
 
 (defun mov-offset-to-accumulator (opcode)
   (with-size-by-last-bit opcode
-    (if is-word
-	(mov (segmented-word-in-ram (next-word) *default-segment*) (register :ax))
-	(mov (segmented-byte-in-ram (next-word) *default-segment*) (byte-register :al)))))
+    (with-ds-default
+      (if is-word
+	  (mov (segmented-word-in-ram *current-segment* (next-word)) (register :ax))
+	  (mov (segmented-byte-in-ram *current-segment* (next-word)) (byte-register :al))))))
 
 (defun mov-accumulator-to-offset (opcode)
   (with-size-by-last-bit opcode
-    (if is-word
-	(mov (register :ax) (segmented-word-in-ram (next-word) *default-segment*))
-	(mov (byte-register :al) (segmented-byte-in-ram (next-word) *default-segment*)))))
+    (with-ds-default
+      (if is-word
+	  (mov (register :ax) (segmented-word-in-ram *current-segment* (next-word)))
+	  (mov (byte-register :al) (segmented-byte-in-ram *current-segment* (next-word)))))))
 
 ;; Groups 1A, 4, and 5 (inc/dec, call/jmp, and push/pop on EAs)
 
@@ -981,18 +988,20 @@
 
 (defmacro mov-string-operation (is-word)
   `(disasm-instr '("movs")
-     (if ,is-word
-	 (mov (segmented-word-in-ram (register :si) *default-segment*) (segmented-word-in-ram (register :di) *default-segment*))
-	 (mov (segmented-byte-in-ram (register :si) *default-segment*) (segmented-byte-in-ram (register :di) *default-segment*)))))
+     (with-ds-default
+       (if ,is-word
+	   (mov (segmented-word-in-ram *current-segment* (register :si)) (segmented-word-in-ram :es (register :di)))
+	   (mov (segmented-byte-in-ram *current-segment* (register :si)) (segmented-byte-in-ram :es (register :di)))))))
 
 (defun mov-string (opcode)
   (string-operation opcode mov-string-operation))
 
 (defmacro load-string-operation (is-word)
   `(disasm-instr '("lods")
-     (if ,is-word
-	 (setf (register :ax) (segmented-word-in-ram (register :si) *default-segment*))
-	 (setf (byte-register :al) (segmented-byte-in-ram (register :si) *default-segment*)))))
+     (with-ds-default
+       (if ,is-word
+	   (setf (register :ax) (segmented-word-in-ram *current-segment* (register :si)))
+	   (setf (byte-register :al) (segmented-byte-in-ram *current-segment* (register :si)))))))
 
 (defun load-string (opcode)
   (string-operation opcode load-string-operation))
@@ -1000,17 +1009,18 @@
 (defmacro store-string-operation (is-word)
   `(disasm-instr '("stos")
      (if ,is-word
-	 (setf (segmented-word-in-ram (register :di) *default-segment*) (register :ax))
-	 (setf (segmented-byte-in-ram (register :di) *default-segment*) (byte-register :al)))))
+	 (setf (segmented-word-in-ram :es (register :di)) (register :ax))
+	 (setf (segmented-byte-in-ram :es (register :di)) (byte-register :al)))))
 
 (defun store-string (opcode)
   (string-operation opcode store-string-operation))
 
 (defmacro compare-string-operation (is-word)
   `(disasm-instr '("cmps")
-     (if ,is-word
-	 (cmp-operation (segmented-word-in-ram (register :si) *default-segment*) (segmented-word-in-ram (register :di) *default-segment*) t)
-	 (cmp-operation (segmented-byte-in-ram (register :si) *default-segment*) (segmented-byte-in-ram (register :di) *default-segment*) nil))))
+     (with-ds-default
+       (if ,is-word
+	   (cmp-operation (segmented-word-in-ram *current-segment* (register :si)) (segmented-word-in-ram :es (register :di)) t)
+	   (cmp-operation (segmented-byte-in-ram *current-segment* (register :si)) (segmented-byte-in-ram :es (register :di)) nil)))))
 
 (defun compare-string (opcode)
   (string-operation opcode compare-string-operation))
@@ -1018,8 +1028,8 @@
 (defmacro scan-string-operation (is-word)
   `(disasm-instr '("scas")
      (if ,is-word
-	 (cmp-operation (register :ax) (segmented-word-in-ram (register :di) *default-segment*) t)
-	 (cmp-operation (byte-register :al) (segmented-byte-in-ram (register :di) *default-segment*) nil))))
+	 (cmp-operation (register :ax) (segmented-word-in-ram :es (register :di)) t)
+	 (cmp-operation (byte-register :al) (segmented-byte-in-ram :es (register :di)) nil))))
 
 (defun scan-string (opcode)
   (string-operation opcode scan-string-operation))
@@ -1037,7 +1047,8 @@
 
 (defun xlat ()
   (disasm-instr '("xlat")
-    (setf (byte-register :al) (segmented-byte-in-ram (+ (register :bx) (byte-register :al))))))
+    (with-ds-default
+      (setf (byte-register :al) (byte-in-ram (+ (segment-calc (segment *current-segment*) (register :bx)) (byte-register :al)))))))
 
 ;;; Opcode parsing
 
