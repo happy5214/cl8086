@@ -243,11 +243,6 @@
 
 ;;; Instruction loader
 
-(defun load-instructions-into-ram (instrs &optional (position 0) (cs 0))
-  (setf *ip* position (segment :cs) cs)
-  (setf (subseq *ram* (segment-calc cs position) (segment-calc cs #xffff)) instrs)
-  (length instrs))
-
 (defun next-instruction ()
   (incf *ip*)
   (elt *ram* (1- (current-ip))))

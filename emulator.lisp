@@ -13,6 +13,11 @@
 
 ;;; Main functions
 
+(defun load-instructions-into-ram (instrs &optional (position 0) (cs 0))
+  (setf *ip* position (segment :cs) cs)
+  (setf (subseq *ram* (segment-calc cs position) (segment-calc cs #xffff)) instrs)
+  (length instrs))
+
 (defun load-instructions-from-file (file)
   (with-open-file (in file :element-type '(unsigned-byte 8))
     (let ((instrs (make-array (file-length in) :element-type '(unsigned-byte 8) :initial-element 0 :adjustable t)))
