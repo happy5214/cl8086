@@ -102,6 +102,9 @@
 (defun segment-calc (seg offset)
   (logand (+ (ash seg 4) offset) #xfffff))
 
+(defun current-ip ()
+  (segment-calc (segment :cs) *ip*))
+
 ;;; setf-able locations
 
 ;; Registers
@@ -240,21 +243,21 @@
 
 ;;; Instruction loader
 
-(defun load-instructions-into-ram (instrs)
-  (setf *ip* 0)
-  (setf (subseq *ram* 0 #x7fff) instrs)
+(defun load-instructions-into-ram (instrs &optional (position 0) (cs 0))
+  (setf *ip* position (segment :cs) cs)
+  (setf (subseq *ram* (segment-calc cs position) (segment-calc cs #xffff)) instrs)
   (length instrs))
 
 (defun next-instruction ()
   (incf *ip*)
-  (elt *ram* (1- *ip*)))
+  (elt *ram* (1- (current-ip))))
 
 (defun next-word ()
   (reverse-little-endian (next-instruction) (next-instruction)))
 
 (defun peek-at-instruction (&optional (forward 0))
   (incf *advance*)
-  (elt *ram* (+ *ip* forward)))
+  (elt *ram* (+ (current-ip) forward)))
 
 (defun peek-at-word ()
   (reverse-little-endian (peek-at-instruction) (peek-at-instruction 1)))
