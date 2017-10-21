@@ -451,11 +451,17 @@
 (defun mov-word-to-register (reg)
   (mov (next-word) (register reg)))
 
-;; Segment prefixes
+;; Segment operations
 
 (defun segment-prefix (seg)
   (let ((*current-segment* seg))
     (parse-opcode (next-instruction))))
+
+(defun push-segment (seg)
+  (push-operation (segment seg)))
+
+(defun pop-segment (seg)
+  (pop-operation (segment seg)))
 
 ;; Flow control
 
@@ -1090,6 +1096,14 @@
     ((= opcode #xf5) (complement-carry-flag))
     ((= opcode #xfc) (clear-direction-flag))
     ((= opcode #xfd) (set-direction-flag))
+    ((= opcode #x06) (push-segment :es))
+    ((= opcode #x07) (pop-segment :es))
+    ((= opcode #x0e) (push-segment :cs))
+    ((= opcode #x0f) (pop-segment :cs))
+    ((= opcode #x16) (push-segment :ss))
+    ((= opcode #x17) (pop-segment :ss))
+    ((= opcode #x1e) (push-segment :ds))
+    ((= opcode #x1f) (pop-segment :ds))
     ((= opcode #x26) (segment-prefix :es))
     ((= opcode #x2e) (segment-prefix :cs))
     ((= opcode #x36) (segment-prefix :ss))
