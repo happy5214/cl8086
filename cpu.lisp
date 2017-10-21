@@ -1054,7 +1054,7 @@
 (defun xlat ()
   (disasm-instr '("xlat")
     (with-ds-default
-      (setf (byte-register :al) (byte-in-ram (+ (segment-calc (segment *current-segment*) (register :bx)) (byte-register :al)))))))
+      (setf (byte-register :al) (segmented-byte-in-ram *current-segment* (+ (register :bx) (byte-register :al)))))))
 
 ;;; Opcode parsing
 
