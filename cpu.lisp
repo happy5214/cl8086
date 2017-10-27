@@ -39,6 +39,7 @@
 (defconstant +byte-register-to-word+ '(:al (:ax nil) :ah (:ax t) :bl (:bx nil) :bh (:bx t) :cl (:cx nil) :ch (:cx t) :dl (:dx nil) :dh (:dx t)) "Mapping from byte registers to word registers")
 (defconstant +bits-to-register+ '(:ax :cx :dx :bx :sp :bp :si :di) "Mapping from index to word register")
 (defconstant +bits-to-byte-register+ '(:al :cl :dl :bl :ah :ch :dh :bh) "Mapping from index to byte register")
+(defconstant +bits-to-segment+ '(:es :cs :ss :ds) "Mapping from index to segment register")
 
 ;;; Constant mappings
 
@@ -47,6 +48,9 @@
 
 (defun bits->byte-reg (bits)
   (elt +bits-to-byte-register+ bits))
+
+(defun bits->segment (bits)
+  (elt +bits-to-segment+ bits))
 
 (defmacro default-seg-to (default &optional (current *current-segment*))
   `(if (null ,current) ,default ,current))
@@ -460,6 +464,14 @@
 
 (defun pop-segment (seg)
   (pop-operation (segment seg)))
+
+(defun mov-segment-to-indirect ()
+  (with-mod-r/m-byte
+    (mov (segment (bits->segment reg-bits)) (indirect-address mod-bits r/m-bits t))))
+
+(defun mov-indirect-to-segment ()
+  (with-mod-r/m-byte
+    (mov (indirect-address mod-bits r/m-bits t) (segment (bits->segment reg-bits)))))
 
 ;; Flow control
 
@@ -1106,6 +1118,8 @@
     ((= opcode #x2e) (segment-prefix :cs))
     ((= opcode #x36) (segment-prefix :ss))
     ((= opcode #x3e) (segment-prefix :ds))
+    ((= opcode #x8c) (mov-segment-to-indirect))
+    ((= opcode #x8e) (mov-indirect-to-segment))
     ((= opcode #xe9) (jmp-near))
     ((= opcode #xeb) (jmp-short))
     ((in-paired-byte-block-p opcode #x70) (jmp-short-conditionally opcode (flag-p :of) "o"))
