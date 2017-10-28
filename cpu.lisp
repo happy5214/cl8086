@@ -232,14 +232,6 @@
       (#b11 (if ,is-word (setf (register (bits->word-reg ,r/m-bits)) ,value) (setf (byte-register (bits->byte-reg ,r/m-bits)) ,value))))
     ,value))
 
-;;; setf wrappers
-
-(defmacro setf-enhanced (fn place value)
-  `(setf ,place (,fn ,place ,value)))
-
-(defmacro logandf (place value)
-  `(setf-enhanced logand ,place ,value))
-
 ;;; Instruction loader
 
 (defun next-instruction ()
@@ -980,7 +972,7 @@
        (,modifier (register :ax) #x106))
      (setf (flag-p :af) adjusted)
      (setf (flag-p :cf) adjusted)
-     (logandf (byte-register :al) #x0f)))
+     (setf (byte-register :al) (logand (byte-register :al) #x0f))))
 
 (defmacro decimal-adjust-after-add-or-sub (modifier)
   `(let ((old-al (byte-register :al)) (old-cf (flag-p :cf)))
