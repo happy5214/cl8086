@@ -473,6 +473,13 @@
   (with-mod-r/m-byte
     (mov (indirect-address mod-bits r/m-bits t) (segment (bits->segment reg-bits)))))
 
+(defun load-far-pointer (seg)
+  (with-mod-r/m-byte
+    (multiple-value-bind (address-base read-seg) (address-for-r/m mod-bits r/m-bits)
+      (let* ((offset (case mod-bits (#b00 0) (#b01 (peek-at-instruction)) (#b10 (peek-at-word)) (#b11 0))) (real-base (+ address-base offset)) (read-seg-value (segment read-seg)))
+	(setf (register (bits->word-reg reg-bits)) (segmented-word-in-ram read-seg-value real-base))
+	(setf (segment seg) (segmented-word-in-ram read-seg-value (+ real-base 2)))))))
+
 ;; Flow control
 
 (defun jmp-near ()
@@ -1120,6 +1127,8 @@
     ((= opcode #x3e) (segment-prefix :ds))
     ((= opcode #x8c) (mov-segment-to-indirect))
     ((= opcode #x8e) (mov-indirect-to-segment))
+    ((= opcode #xc4) (load-far-pointer :es))
+    ((= opcode #xc5) (load-far-pointer :ds))
     ((= opcode #xe9) (jmp-near))
     ((= opcode #xeb) (jmp-short))
     ((in-paired-byte-block-p opcode #x70) (jmp-short-conditionally opcode (flag-p :of) "o"))
