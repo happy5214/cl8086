@@ -344,8 +344,9 @@
     (funcall fn reg)))
 
 (defmacro with-mod-r/m-byte (&body body)
-  `(let* ((mod-r/m (next-instruction)) (r/m-bits (logand mod-r/m #b00000111)) (mod-bits (ash (logand mod-r/m #b11000000) -6)) (reg-bits (ash (logand mod-r/m #b00111000) -3)))
-     ,@body))
+  (let ((mod-r/m (gensym)))
+    `(let* ((,mod-r/m (next-instruction)) (r/m-bits (logand ,mod-r/m #b00000111)) (mod-bits (ash (logand ,mod-r/m #b11000000) -6)) (reg-bits (ash (logand ,mod-r/m #b00111000) -3)))
+       ,@body)))
 
 (defmacro with-size-by-last-bit (opcode &body body)
   `(let ((is-word (oddp ,opcode)))
