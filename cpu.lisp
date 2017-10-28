@@ -117,10 +117,8 @@
   (disasm-instr reg
     (getf *registers* reg)))
 
-(defun set-reg (reg value)
-  (setf (getf *registers* reg) (wrap-carry value t)))
-
-(defsetf register set-reg)
+(defsetf register (reg) (value)
+  `(setf (getf *registers* ,reg) (wrap-carry ,value t)))
 
 (defun byte-register (reg)
   (disasm-instr reg
@@ -129,14 +127,12 @@
 	  (ash (register word) -8)
 	  (logand (register word) #x00ff)))))
 
-(defun set-byte-reg (reg value)
-  (let* ((register-to-word (getf +byte-register-to-word+ reg)) (word (first register-to-word)) (wrapped-value (wrap-carry value nil)))
-    (if (second register-to-word)
-	(setf (register word) (+ (ash wrapped-value 8) (logand (register word) #x00ff)))
-	(setf (register word) (+ wrapped-value (logand (register word) #xff00)))))
-  value)
-
-(defsetf byte-register set-byte-reg)
+(defsetf byte-register (reg) (value)
+  `(let* ((register-to-word (getf +byte-register-to-word+ ,reg)) (word (first register-to-word)) (wrapped-value (wrap-carry ,value nil)))
+     (if (second register-to-word)
+	 (setf (register word) (+ (ash wrapped-value 8) (logand (register word) #x00ff)))
+	 (setf (register word) (+ wrapped-value (logand (register word) #xff00))))
+     ,value))
 
 (defun segment (seg)
   (disasm-instr seg
@@ -177,18 +173,17 @@
       (setf (elt flags (- 15 11)) (flag :of)))
     (bit-vector->integer flags)))
 
-(defun set-flags-register (value &optional (is-word t))
-  (setf (flag-p :cf) (logbitp 0 value))
-  (setf (flag-p :pf) (logbitp 2 value))
-  (setf (flag-p :af) (logbitp 4 value))
-  (setf (flag-p :zf) (logbitp 6 value))
-  (setf (flag-p :sf) (logbitp 7 value))
-  (when is-word
-    (setf (flag-p :df) (logbitp 10 value))
-    (setf (flag-p :of) (logbitp 11 value)))
-  value)
-
-(defsetf flags-register set-flags-register)
+(defsetf flags-register (&optional (is-word t)) (value)
+  `(progn
+     (setf (flag-p :cf) (logbitp 0 ,value))
+     (setf (flag-p :pf) (logbitp 2 ,value))
+     (setf (flag-p :af) (logbitp 4 ,value))
+     (setf (flag-p :zf) (logbitp 6 ,value))
+     (setf (flag-p :sf) (logbitp 7 ,value))
+     (when ,is-word
+       (setf (flag-p :df) (logbitp 10 ,value))
+       (setf (flag-p :of) (logbitp 11 ,value)))
+     value))
 
 ;; RAM
 
