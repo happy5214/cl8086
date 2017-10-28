@@ -366,6 +366,13 @@
   `(let ((*default-segment* :ds))
      ,@body))
 
+(defmacro with-indirect-segment-offset (mnemonic mod-bits r/m-bits &body body)
+  (let ((address-base (gensym)) (read-seg (gensym)) (offset (gensym)) (real-base (gensym)) (read-seg-value (gensym)))
+    `(disasm-instr (list ,mnemonic (indirect-address ,mod-bits ,r/m-bits t))
+       (multiple-value-bind (,address-base ,read-seg) (address-for-r/m ,mod-bits ,r/m-bits)
+	 (let* ((,offset (case mod-bits (#b00 0) (#b01 (peek-at-instruction)) (#b10 (peek-at-word)) (#b11 0))) (,real-base (+ ,address-base ,offset)) (,read-seg-value (segment ,read-seg)) (indirect-offset (segmented-word-in-ram ,read-seg-value ,real-base)) (indirect-segment (segmented-word-in-ram ,read-seg-value (+ ,real-base 2))))
+	   ,@body)))))
+
 ;; Group handling
 
 (defmacro parse-group-byte-pair (opcode operation mod-bits r/m-bits)
@@ -473,14 +480,18 @@
   (with-mod-r/m-byte
     (mov (indirect-address mod-bits r/m-bits t) (segment (bits->segment reg-bits)))))
 
-(defun load-far-pointer (seg)
+(defun load-far-pointer (seg mnemonic)
   (with-mod-r/m-byte
-    (multiple-value-bind (address-base read-seg) (address-for-r/m mod-bits r/m-bits)
-      (let* ((offset (case mod-bits (#b00 0) (#b01 (peek-at-instruction)) (#b10 (peek-at-word)) (#b11 0))) (real-base (+ address-base offset)) (read-seg-value (segment read-seg)))
-	(setf (register (bits->word-reg reg-bits)) (segmented-word-in-ram read-seg-value real-base))
-	(setf (segment seg) (segmented-word-in-ram read-seg-value (+ real-base 2)))))))
+    (with-indirect-segment-offset mnemonic mod-bits r/m-bits
+      (setf (register (bits->word-reg reg-bits)) indirect-offset)
+      (setf (segment seg) indirect-segment))))
 
 ;; Flow control
+
+(defun jmp-far ()
+  (disasm-instr (list "jmp" :op (list :offset (next-word) :segment (next-word)))
+    (setf *ip* (next-word))
+    (setf (segment :cs) (next-word))))
 
 (defun jmp-near ()
   (disasm-instr (list "jmp" :op (twos-complement (next-word) t))
@@ -505,10 +516,27 @@
     (if (zerop (register :cx))
 	(incf *ip* (twos-complement (next-instruction) nil)))))
 
+(defun call-far ()
+  (disasm-instr (list "call" :op (list :offset (next-word) :segment (next-word)))
+    (push-to-stack (segment :cs))
+    (push-to-stack (+ *ip* 4))
+    (setf *ip* (next-word))
+    (setf (segment :cs) (next-word))))
+
 (defun call-near ()
   (disasm-instr (list "call" :op (twos-complement (next-word) t))
     (push-to-stack (+ *ip* 2))
     (incf *ip* (twos-complement (next-word) t))))
+
+(defun ret-far ()
+  (disasm-instr '("retf")
+    (setf *ip* (pop-from-stack))
+    (setf (segment :cs) (pop-from-stack))))
+
+(defun ret-far-resetting-stack ()
+  (disasm-instr (list "retf" :op (next-word))
+    (ret-far)
+    (incf (register :sp) (next-word))))
 
 (defun ret-near ()
   (disasm-instr '("retn")
@@ -701,14 +729,25 @@
   (pop-operation (indirect-address mod-bits r/m-bits t)))
 
 (defun call-near-indirect (mod-bits r/m-bits)
-  (let ((target (indirect-address mod-bits r/m-bits t)))
-    (disasm-instr (list "call" :op target)
-      (push-to-stack *ip*)
-      (setf *ip* target))))
+  (disasm-instr (list "call" :op (indirect-address mod-bits r/m-bits t))
+    (push-to-stack *ip*)
+    (setf *ip* (indirect-address mod-bits r/m-bits t))))
+
+(defun call-far-indirect (mod-bits r/m-bits)
+  (with-indirect-segment-offset "call" mod-bits r/m-bits
+    (push-to-stack (segment :cs))
+    (push-to-stack (+ *ip* 4))
+    (setf *ip* indirect-offset)
+    (setf (segment :cs) indirect-segment)))
 
 (defun jmp-near-indirect (mod-bits r/m-bits)
   (disasm-instr (list "jmp" :op (indirect-address mod-bits r/m-bits t))
     (setf *ip* (indirect-address mod-bits r/m-bits t))))
+
+(defun jmp-far-indirect (mod-bits r/m-bits)
+  (with-indirect-segment-offset "jmp" mod-bits r/m-bits
+    (setf *ip* indirect-offset)
+    (setf (segment :cs) indirect-segment)))
 
 (defun parse-group1a-opcode ()
   "Group 1A (0x8F)"
@@ -727,7 +766,9 @@
     (0 (inc-indirect mod-bits r/m-bits t))
     (1 (dec-indirect mod-bits r/m-bits t))
     (2 (call-near-indirect mod-bits r/m-bits))
+    (3 (call-far-indirect mod-bits r/m-bits))
     (4 (jmp-near-indirect mod-bits r/m-bits))
+    (5 (jmp-far-indirect mod-bits r/m-bits))
     (6 (push-indirect mod-bits r/m-bits))))
 
 ;; Group 3 (arithmetic and logical operations)
@@ -1127,8 +1168,9 @@
     ((= opcode #x3e) (segment-prefix :ds))
     ((= opcode #x8c) (mov-segment-to-indirect))
     ((= opcode #x8e) (mov-indirect-to-segment))
-    ((= opcode #xc4) (load-far-pointer :es))
-    ((= opcode #xc5) (load-far-pointer :ds))
+    ((= opcode #xc4) (load-far-pointer :es "les"))
+    ((= opcode #xc5) (load-far-pointer :ds "lds"))
+    ((= opcode #xea) (jmp-far))
     ((= opcode #xe9) (jmp-near))
     ((= opcode #xeb) (jmp-short))
     ((in-paired-byte-block-p opcode #x70) (jmp-short-conditionally opcode (flag-p :of) "o"))
@@ -1140,9 +1182,12 @@
     ((in-paired-byte-block-p opcode #x7c) (jmp-short-conditionally opcode (not (eq (flag-p :of) (flag-p :sf))) "l"))
     ((in-paired-byte-block-p opcode #x7e) (jmp-short-conditionally opcode (or (flag-p :zf) (not (eq (flag-p :of) (flag-p :sf)))) "le"))
     ((= opcode #xe3) (jmp-short-on-cx-zero))
+    ((= opcode #x9a) (call-far))
     ((= opcode #xe8) (call-near))
     ((= opcode #xc2) (ret-near-resetting-stack))
     ((= opcode #xc3) (ret-near))
+    ((= opcode #xca) (ret-far-resetting-stack))
+    ((= opcode #xcb) (ret-far))
     ((= opcode #xe0) (loop-instruction (not (flag-p :zf)) "ne"))
     ((= opcode #xe1) (loop-instruction (flag-p :zf) "e"))
     ((= opcode #xe2) (loop-instruction t ""))
