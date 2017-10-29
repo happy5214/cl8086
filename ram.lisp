@@ -2,7 +2,7 @@
 
 ;;; State variables
 
-(defparameter *ram* (make-array (* 256 1024) :initial-element 0 :element-type '(unsigned-byte 8)) "RAM")
+(defparameter *ram* (make-array (* 1024 1024) :initial-element 0 :element-type '(unsigned-byte 8)) "RAM")
 
 ;;; Accessors
 
