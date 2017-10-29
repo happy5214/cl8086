@@ -58,7 +58,7 @@
 (defun address-for-r/m (mod-bits r/m-bits)
   (disasm-instr
       (if (and (= mod-bits #b00) (= r/m-bits #b110))
-	  (list :disp (peek-at-word))
+	  (list :disp (peek-at-word) :segment (default-seg-to :ds))
 	  (case r/m-bits
 	    (#b000 (list :segment (default-seg-to :ds) :base :bx :index :si))
 	    (#b001 (list :segment (default-seg-to :ds) :base :bx :index :di))
