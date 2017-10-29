@@ -29,20 +29,20 @@ Currently supported
 - All 8 general purpose byte and word registers
 - IP register
 - Flags: AF, CF, DF, OF, PF, SF, ZF (also FLAGS register)
-- Two fixed 64 kB segments of memory (general RAM and the stack)
 - Loading instructions via a vector
 - Binary-coded decimal (both packed and unpacked)
 - String functions
 - rep- and loop-type prefixes
+- Segment registers that can be manipulated
+- Opcode prefixes for segment overrides
+- Full 1 MB RAM vector
 
 Will be supported later
 ~~~~~~~~~~~~~~~~~~~~~~~
-- Segment registers that can be manipulated
-- Full 1 MB RAM vector
 - Interrupts
-- Opcode prefixes for segment overrides and (possibly) lock
 
 May be supported later
 ~~~~~~~~~~~~~~~~~~~~~~
 - Port-mapped IO
 - Floating-point operations
+- LOCK assertions
