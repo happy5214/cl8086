@@ -107,7 +107,8 @@
   (logand (+ (ash seg 4) offset) #xfffff))
 
 (defun current-ip ()
-  (segment-calc (segment :cs) *ip*))
+  (disasm-instr (segment-calc 0 *ip*)
+    (segment-calc (segment :cs) *ip*)))
 
 ;;; setf-able locations
 
@@ -183,7 +184,7 @@
      (when ,is-word
        (setf (flag-p :df) (logbitp 10 ,value))
        (setf (flag-p :of) (logbitp 11 ,value)))
-     value))
+     ,value))
 
 ;; RAM
 

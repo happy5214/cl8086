@@ -40,7 +40,7 @@
 
 (defun disasm (&key (file nil) (example #()))
   (let ((*disasm* t))
-    (disasm-instructions (load-instructions-into-ram (load-instructions :file file :example example)))))
+    (disasm-instructions (load-instructions-into-ram (load-instructions :file file :example example) 0 0))))
 
 (defun main (&key (file nil) (example #()) (display nil) (stream t) (newline nil))
   (let ((*disasm* nil))
