@@ -3,6 +3,7 @@
 ;;; Convenience functions
 
 (defmacro xor (op1 op2)
+  "Apply an XOR operation to two booleans."
   `(not (eq ,op1 ,op2)))
 
 ;; Taken from http://www.lispforum.com/viewtopic.php?f=2&t=1205#p6269; not necessarily under same license as my code.
@@ -18,6 +19,7 @@
 (defparameter *disasm* nil "Whether to disassemble")
 
 (defmacro disasm-instr (on-disasm &body body)
+  "Switch between disassembly and actual operation."
   `(if *disasm*
        ,on-disasm
        (progn ,@body)))
@@ -31,8 +33,8 @@
 (defparameter *has-carried* nil "Whether the last wraparound changed the value")
 (defparameter *advance* 0 "Bytes to advance IP by after an operation")
 
-(defparameter *default-segment* nil)
-(defparameter *current-segment* nil)
+(defparameter *default-segment* nil "A default segment for an instruction")
+(defparameter *current-segment* nil "The current override segment")
 
 ;;; Constants
 
@@ -44,18 +46,23 @@
 ;;; Constant mappings
 
 (defun bits->word-reg (bits)
+  "Map a bit pattern to a word register."
   (elt +bits-to-register+ bits))
 
 (defun bits->byte-reg (bits)
+  "Map a bit pattern to a byte register."
   (elt +bits-to-byte-register+ bits))
 
 (defun bits->segment (bits)
+  "Map a bit pattern to a segment register."
   (elt +bits-to-segment+ bits))
 
 (defmacro default-seg-to (default &optional (current *current-segment*))
+  "Set a default segment if no override is given."
   `(if (null ,current) ,default ,current))
 
 (defun address-for-r/m (mod-bits r/m-bits)
+  "Determine the registers needed to calculate an indirect address."
   (disasm-instr
       (if (and (= mod-bits #b00) (= r/m-bits #b110))
 	  (list :disp (peek-at-word) :segment (default-seg-to :ds))
@@ -83,10 +90,12 @@
 ;;; Convenience functions
 
 (defun negative-p (value is-word)
+  "Determine whether a number is negative (has its sign bit set)."
   (let ((sign-and (if is-word #x8000 #x80)))
     (= (logand sign-and value) sign-and)))
 
 (defun twos-complement (value is-word)
+  "Calculate the value of a number using two's complement."
   (if (negative-p value is-word)
       (- (1+ (logxor value (if is-word #xffff #xff))))
       value))
@@ -101,12 +110,15 @@
       (t value))))
 
 (defun sign-extend (value)
+  "Return a signed byte sign-extended to a word."
   (wrap-carry (twos-complement value nil) t))
 
 (defun segment-calc (seg offset)
+  "Calculate an absolute address using a segment:offset pair."
   (logand (+ (ash seg 4) offset) #xfffff))
 
 (defun current-ip ()
+  "Calculate the current instruction pointer value with the CS segment."
   (disasm-instr (segment-calc 0 *ip*)
     (segment-calc (segment :cs) *ip*)))
 
@@ -115,13 +127,16 @@
 ;; Registers
 
 (defun register (reg)
+  "Read from a word register."
   (disasm-instr reg
     (getf *registers* reg)))
 
 (defsetf register (reg) (value)
+  "Write to a word register."
   `(setf (getf *registers* ,reg) (wrap-carry ,value t)))
 
 (defun byte-register (reg)
+  "Read from a byte register."
   (disasm-instr reg
     (let* ((register-to-word (getf +byte-register-to-word+ reg)) (word (first register-to-word)))
       (if (second register-to-word)
@@ -129,6 +144,7 @@
 	  (logand (register word) #x00ff)))))
 
 (defsetf byte-register (reg) (value)
+  "Write to a byte register."
   `(let* ((register-to-word (getf +byte-register-to-word+ ,reg)) (word (first register-to-word)) (wrapped-value (wrap-carry ,value nil)))
      (if (second register-to-word)
 	 (setf (register word) (+ (ash wrapped-value 8) (logand (register word) #x00ff)))
@@ -136,33 +152,42 @@
      ,value))
 
 (defun segment (seg)
+  "Read from a segment register."
   (disasm-instr seg
     (getf *segments* seg)))
 
 (defsetf segment (seg) (value)
+  "Write to a segment register."
   `(setf (getf *segments* ,seg) (logand ,value #xffff)))
 
 ;; Flags
 
 (defun flag (name)
+  "Read a flag value."
   (getf *flags* name))
 
 (defsetf flag (name) (value)
+  "Set a flag value."
   `(setf (getf *flags* ,name) ,value))
 
 (defun flag-p (name)
+  "Read whether a flag is set."
   (= (flag name) 1))
 
 (defsetf flag-p (name) (is-set)
+  "Write whether a flag is set."
   `(setf (flag ,name) (if ,is-set 1 0)))
 
 (defun set-flag (name)
+  "Set a flag (to 1)."
   (setf (flag-p name) t))
 
 (defun clear-flag (name)
+  "Clear a flag."
   (setf (flag-p name) nil))
 
 (defun flags-register (&optional (is-word t))
+  "Read the flags as the FLAGS register."
   (let ((flags (vector 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0)))
     (setf (elt flags (- 15 0)) (flag :cf))
     (setf (elt flags (- 15 2)) (flag :pf))
@@ -175,6 +200,7 @@
     (bit-vector->integer flags)))
 
 (defsetf flags-register (&optional (is-word t)) (value)
+  "Write the flags as the FLAGS register."
   `(progn
      (setf (flag-p :cf) (logbitp 0 ,value))
      (setf (flag-p :pf) (logbitp 2 ,value))
@@ -189,23 +215,27 @@
 ;; RAM
 
 (defun segmented-byte-in-ram (seg offset)
+  "Read a byte from RAM using a segment:offset pair."
   (let ((real-seg (default-seg-to *default-segment* seg)))
     (byte-in-ram (segment-calc (segment real-seg) offset))))
 
 (defsetf segmented-byte-in-ram (seg offset) (value)
+  "Write a byte to RAM using a segment:offset pair."
   `(let ((real-seg (default-seg-to *default-segment* ,seg)))
      (setf (byte-in-ram (segment-calc (segment real-seg) ,offset)) ,value)))
 
 (defun segmented-word-in-ram (seg offset)
+  "Read a word from RAM using a segment:offset pair."
   (let ((real-seg (default-seg-to *default-segment* seg)))
     (word-in-ram (segment-calc (segment real-seg) offset))))
 
 (defsetf segmented-word-in-ram (seg offset) (value)
+  "Write a word to RAM using a segment:offset pair."
   `(let ((real-seg (default-seg-to *default-segment* ,seg)))
      (setf (word-in-ram (segment-calc (segment real-seg) ,offset)) ,value)))
 
 (defun indirect-address (mod-bits r/m-bits is-word)
-  "Read from an indirect address."
+  "Read from RAM or a register using an indirect address."
   (disasm-instr
       (if (= mod-bits #b11) (register (if is-word (bits->word-reg r/m-bits) (bits->byte-reg r/m-bits)))
 	  (let ((base-index (address-for-r/m mod-bits r/m-bits)))
@@ -224,7 +254,7 @@
 	(#b11 (if is-word (register (bits->word-reg r/m-bits)) (byte-register (bits->byte-reg r/m-bits))))))))
 
 (defsetf indirect-address (mod-bits r/m-bits is-word) (value)
-  "Write to an indirect address."
+  "Write to RAM or a register using an indirect address."
   `(multiple-value-bind (address-base seg) (address-for-r/m ,mod-bits ,r/m-bits)
     (case ,mod-bits
       (#b00 (if ,is-word (setf (segmented-word-in-ram seg address-base) ,value) (setf (segmented-byte-in-ram seg address-base) ,value)))
