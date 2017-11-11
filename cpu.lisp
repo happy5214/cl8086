@@ -26,7 +26,7 @@
 
 ;;; State variables
 
-(defparameter *flags* '(:af 0 :cf 0 :df 0 :of 0 :pf 0 :sf 0 :zf 0) "Flags")
+(defparameter *flags* '(:af 0 :cf 0 :df 0 :if 0 :of 0 :pf 0 :sf 0 :zf 0) "Flags")
 (defparameter *registers* '(:ax 0 :bx 0 :cx 0 :dx 0 :bp 0 :sp #x100 :si 0 :di 0) "Registers")
 (defparameter *segments* '(:cs 0 :ds 0 :es 0 :ss 0) "Segments")
 (defparameter *ip* 0 "Instruction pointer")
@@ -195,6 +195,7 @@
     (setf (elt flags (- 15 6)) (flag :zf))
     (setf (elt flags (- 15 7)) (flag :sf))
     (when is-word
+      (setf (elt flags (- 15 9)) (flag :if))
       (setf (elt flags (- 15 10)) (flag :df))
       (setf (elt flags (- 15 11)) (flag :of)))
     (bit-vector->integer flags)))
@@ -208,6 +209,7 @@
      (setf (flag-p :zf) (logbitp 6 ,value))
      (setf (flag-p :sf) (logbitp 7 ,value))
      (when ,is-word
+       (setf (flag-p :if) (logbitp 9 ,value))
        (setf (flag-p :df) (logbitp 10 ,value))
        (setf (flag-p :of) (logbitp 11 ,value)))
      ,value))
@@ -453,6 +455,14 @@
 (defun set-direction-flag ()
   (disasm-instr '("std")
     (setf (flag-p :df) t)))
+
+(defun clear-interrupt-flag ()
+  (disasm-instr '("cli")
+    (setf (flag-p :if) nil)))
+
+(defun set-interrupt-flag ()
+  (disasm-instr '("sti")
+    (setf (flag-p :if) t)))
 
 ;; One-byte opcodes on registers
 
@@ -1173,6 +1183,8 @@
     ((= opcode #xf5) (complement-carry-flag))
     ((= opcode #xfc) (clear-direction-flag))
     ((= opcode #xfd) (set-direction-flag))
+    ((= opcode #xfa) (clear-interrupt-flag))
+    ((= opcode #xfb) (set-interrupt-flag))
     ((= opcode #x06) (push-segment :es))
     ((= opcode #x07) (pop-segment :es))
     ((= opcode #x0e) (push-segment :cs))
