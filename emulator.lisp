@@ -13,9 +13,10 @@
 
 ;;; Main functions
 
-(defun load-instructions-into-ram (instrs &key (position 0) (cs 0))
-  (setf *ip* position (segment :cs) cs)
-  (setf (subseq *ram* (segment-calc cs position) (segment-calc cs #xffff)) instrs)
+(defun load-instructions-into-ram (instrs &key (position 0) (seg 0))
+  (setf *ip* position)
+  (setf (segment :cs) seg (segment :ds) seg (segment :es) seg (segment :ss) seg)
+  (setf (subseq *ram* (segment-calc seg position) (segment-calc seg #xffff)) instrs)
   (length instrs))
 
 (defun load-instructions-from-file (file)
@@ -40,11 +41,11 @@
 
 (defun disasm (&key (file nil) (example #()))
   (let ((*disasm* t))
-    (disasm-instructions (load-instructions-into-ram (load-instructions :file file :example example) :position 0 :cs 0))))
+    (disasm-instructions (load-instructions-into-ram (load-instructions :file file :example example) :position 0 :seg 0))))
 
-(defun main (&key (file nil) (example #()) (display nil) (stream t) (newline nil))
+(defun main (&key (file nil) (example #()) (display nil) (stream t) (newline nil) (position 0) (seg #x1000))
   (let ((*disasm* nil))
-    (load-instructions-into-ram (load-instructions :file file :example example))
+    (load-instructions-into-ram (load-instructions :file file :example example) :position position :seg seg)
     (execute-instructions)
     (when display
       (print-video-ram :stream stream :newline newline))))
