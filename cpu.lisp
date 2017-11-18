@@ -585,6 +585,39 @@
        (when (and (not (zerop (register :cx))) ,condition)
 	 (incf *ip* disp)))))
 
+;; Interrupts
+
+(defun interrupt (code)
+  (check-type code (unsigned-byte 8))
+  (when (flag-p :if)
+    (let* ((offset (* code 4)) (new-ip (word-in-ram offset)) (new-cs (word-in-ram (+ offset 2))))
+      (push-to-stack (flags-register))
+      (push-to-stack (segment :cs))
+      (push-to-stack *ip*)
+      (clear-flag :if)
+      (clear-flag :tf)
+      (setf *ip* new-ip)
+      (setf (segment :cs) new-cs))))
+
+(defun int-operation ()
+  (disasm-instr (list "int" :op (next-instruction))
+    (interrupt (next-instruction))))
+
+(defun int-3 ()
+  (disasm-instr '("int" :op 3)
+    (interrupt 3)))
+
+(defun int-on-overflow ()
+  (disasm-instr '("into")
+    (if (flag-p :of)
+	(interrupt 4))))
+
+(defun iret ()
+  (disasm-instr '("iret")
+    (setf *ip* (pop-from-stack))
+    (setf (segment :cs) (pop-from-stack))
+    (setf (flags-register) (pop-from-stack))))
+
 ;; ALU
 
 (defmacro parse-alu-opcode (opcode operation)
@@ -1224,6 +1257,10 @@
     ((= opcode #xe0) (loop-instruction (not (flag-p :zf)) "ne"))
     ((= opcode #xe1) (loop-instruction (flag-p :zf) "e"))
     ((= opcode #xe2) (loop-instruction t ""))
+    ((= opcode #xcc) (int-3))
+    ((= opcode #xcd) (int-operation))
+    ((= opcode #xce) (int-on-overflow))
+    ((= opcode #xcf) (iret))
     ((in-6-byte-block-p opcode #x00) (parse-alu-opcode opcode add-without-carry))
     ((in-6-byte-block-p opcode #x08) (parse-alu-opcode opcode or-operation))
     ((in-6-byte-block-p opcode #x10) (parse-alu-opcode opcode add-with-carry))
