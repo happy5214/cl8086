@@ -30,10 +30,10 @@
       (load-instructions-from-file file)
       example))
 
-(defun print-video-ram (&key (width 80) (height 25) (stream t) (newline nil))
+(defun print-video-ram (&key (width 80) (height 25) (stream t) (newline nil) (seg #x1000))
   (dotimes (line height)
     (dotimes (column width)
-      (let ((char-at-cell (byte-in-ram (+ #x8000 (* line 80) column))))
+      (let ((char-at-cell (byte-in-ram (segment-calc seg (+ #x8000 (* line 80) column)))))
 	(if (zerop char-at-cell)
 	    (format stream "~a" #\Space)
 	    (format stream "~a" (code-char char-at-cell)))))
@@ -48,4 +48,4 @@
     (load-instructions-into-ram (load-instructions :file file :example example) :position position :seg seg)
     (execute-instructions)
     (when display
-      (print-video-ram :stream stream :newline newline))))
+      (print-video-ram :stream stream :newline newline :seg seg))))
