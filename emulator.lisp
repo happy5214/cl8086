@@ -9,6 +9,7 @@
 ;;; Includes
 
 (load "ram.lisp")
+(load "iospace.lisp")
 (load "cpu.lisp")
 
 ;;; Main functions
