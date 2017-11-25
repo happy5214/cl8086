@@ -618,6 +618,22 @@
     (setf (segment :cs) (pop-from-stack))
     (setf (flags-register) (pop-from-stack))))
 
+;; Port-mapped I/O
+
+(defmacro input-operation (port opcode)
+  `(with-size-by-last-bit ,opcode
+     (disasm-instr (list "in" :src ,port :dest (if is-word (byte-register :al) (register :ax)))
+       (setf (byte-register :al) (read-byte-from-io-port ,port))
+       (when is-word
+	 (setf (byte-register :ah) (read-byte-from-io-port (1+ ,port)))))))
+
+(defmacro output-operation (port opcode)
+  `(with-size-by-last-bit ,opcode
+     (disasm-instr (list "out" :src (if is-word (register :ax) (byte-register :al)) :dest ,port)
+       (write-byte-to-io-port ,port (byte-register :al))
+       (when is-word
+	 (write-byte-to-io-port (1+ ,port) (byte-register :ah))))))
+
 ;; ALU
 
 (defmacro parse-alu-opcode (opcode operation)
@@ -1261,6 +1277,10 @@
     ((= opcode #xcd) (int-operation))
     ((= opcode #xce) (int-on-overflow))
     ((= opcode #xcf) (iret))
+    ((in-paired-byte-block-p opcode #xe4) (input-operation (next-instruction) opcode))
+    ((in-paired-byte-block-p opcode #xe6) (output-operation (next-instruction) opcode))
+    ((in-paired-byte-block-p opcode #xec) (input-operation (register :dx) opcode))
+    ((in-paired-byte-block-p opcode #xee) (output-operation (register :dx) opcode))
     ((in-6-byte-block-p opcode #x00) (parse-alu-opcode opcode add-without-carry))
     ((in-6-byte-block-p opcode #x08) (parse-alu-opcode opcode or-operation))
     ((in-6-byte-block-p opcode #x10) (parse-alu-opcode opcode add-with-carry))
