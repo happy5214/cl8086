@@ -36,13 +36,10 @@ Currently supported
 - Segment registers that can be manipulated
 - Opcode prefixes for segment overrides
 - Full 1 MB RAM vector
-
-Will be supported later
-~~~~~~~~~~~~~~~~~~~~~~~
 - Interrupts
-
-May be supported later
-~~~~~~~~~~~~~~~~~~~~~~
 - Port-mapped IO
+
+Probably won't be supported later
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - Floating-point operations
 - LOCK assertions
